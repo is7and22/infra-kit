@@ -21,6 +21,8 @@ TRACE = "0af7651916cd43dd8448eb211c80319c"
 OTHER = "11111111111111111111111111111111"
 AUTH = "Basic dGVzdDp0ZXN0"
 SERVICES = ["demo-nginx", "demo-api", "demo-worker"]
+STREAM_NOT_FOUND_400 = {"code": 20002, "message": "Search stream not found: nosuchstream",
+                        "error_detail": "", "trace_id": ""}
 
 
 class FakeOpenObserve:
@@ -29,6 +31,7 @@ class FakeOpenObserve:
     def __init__(self):
         self.rows = {"traces": [], "logs": []}
         self.missing_stream = None
+        self.forced = []  # 依序先回這些 (狀態碼, body)，用完才照常查
         self.requests = []
         fake = self
 
@@ -41,6 +44,9 @@ class FakeOpenObserve:
                 fake.requests.append((self.path, body))
                 if self.headers.get("Authorization") != AUTH:
                     self._send(401, {"code": 401, "message": "Unauthorized Access"})
+                    return
+                if fake.forced:
+                    self._send(*fake.forced.pop(0))
                     return
                 m = re.match(r"^/api/demo/_search\?type=(traces|logs)$", self.path)
                 if m and fake.missing_stream == m.group(1):
@@ -148,6 +154,24 @@ class CheckTraceTest(unittest.TestCase):
         result = check_trace.check_trace(self.o2.api, AUTH, TRACE, SERVICES, SERVICES,
                                          timeout=5, interval=0.05)
         self.assertTrue(result.ok, result.describe())
+
+    def test_stream_not_found_400_keeps_waiting(self):
+        # OpenObserve v1.1.2 實測：查不存在的 stream 回 400，traces 與 logs 相同
+        self.o2.add_all()
+        self.o2.forced = [(400, STREAM_NOT_FOUND_400)] * 2
+        code, msg = self.run_cli("--timeout", "5")
+        self.assertEqual(code, 0, msg)
+        self.assertEqual(self.o2.forced, [])
+        self.assertGreater(len(self.o2.requests), 2)
+
+    def test_other_400_fails_fast_with_exit_2(self):
+        self.o2.add_all()
+        self.o2.forced = [(400, {"code": 20001, "message": "Search SQL not valid: syntax error"})]
+        start = time.monotonic()
+        code, msg = self.run_cli("--timeout", "10")
+        self.assertEqual(code, 2, msg)
+        self.assertIn("400", msg)
+        self.assertLess(time.monotonic() - start, 5)
 
     def test_other_404_fails_fast_with_exit_2(self):
         code, msg = self.run_cli("--url", self.o2.api.replace("/demo", "/wrong-org"), "--timeout", "10")

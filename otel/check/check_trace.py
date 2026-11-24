@@ -74,8 +74,9 @@ def _services(api: str, auth: str, search_type: str, stream: str, trace_id: str,
             payload = json.load(resp)
     except urllib.error.HTTPError as e:
         detail = e.read().decode(errors="replace")[:300]
-        if e.code == 404 and "stream" in detail.lower():
-            # stream 還沒有任何資料：當作還沒到，繼續等。回應格式待 faninsights 驗證
+        if e.code in (400, 404) and "stream not found" in detail.lower():
+            # stream 還沒有任何資料：當作還沒到，繼續等。
+            # OpenObserve v1.1.2 實測回 400 {"code":20002,"message":"Search stream not found: <stream>"}
             return set()
         raise CheckError(f"OpenObserve 查 {search_type} 回 {e.code}：{detail}") from e
     except urllib.error.URLError as e:
