@@ -44,9 +44,9 @@ compose 裡 web 與 worker 共用映像時，各自設 `OTEL_SERVICE_NAME`（`<�
 
 已在第一個接入的項目驗過：`opentelemetry-instrumentation-logging==0.66b2` 配 SDK 1.45.2，Django＋gunicorn、FastAPI、MCP server 三種服務，經 Collector 與直送 OpenObserve 兩種跑法，log 都帶上 trace id。
 
-- 套件：`opentelemetry-instrumentation-logging`，確認它在 requirements 裡並釘同一版（`0.66b2`）
+- 套件：`opentelemetry-instrumentation-logging`，確認它在 requirements 裡，與其他 instrumentation 釘同一版（`0.66b2`）
 - 環境變數：照 `otel/README.md`「應用端環境變數」表設 `OTEL_LOGS_EXPORTER` 與 `OTEL_PYTHON_LOG_CODE_ATTRIBUTES`，表下那句說明的舊變數不要設
-- 機制：`opentelemetry-instrument` 啟動時 instrumentation-logging 自己裝 handler（`OTEL_PYTHON_LOG_AUTO_INSTRUMENTATION`，預設開，不必設）。它的 handler 預設不帶程式碼位置三欄，少了上面那個變數不會有錯誤訊息，只是 OpenObserve 裡查不到那三欄
+- 機制：`opentelemetry-instrument` 啟動時 instrumentation-logging 自己裝 handler（`OTEL_PYTHON_LOG_AUTO_INSTRUMENTATION`，預設開，不必設）。它的 handler 預設不帶程式碼位置三欄，少了上面那個變數不會有錯誤訊息，OpenObserve 也查不到那三欄
 - 驗：`check/check_trace.py --log-service <項目>-<服務>`
 
 ## 已知要注意的

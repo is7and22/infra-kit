@@ -53,7 +53,7 @@ OTEL_RESOURCE_ATTRIBUTES=service.version=1.4.2,deployment.environment.name=prod
 | `OTEL_LOGS_EXPORTER` | `otlp` |
 | `OTEL_PYTHON_LOG_CODE_ATTRIBUTES` | `true`（Python 才需要：log 帶上程式碼位置 `code.file.path`、`code.function.name`、`code.line.number`） |
 
-Python 不要設 `OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED`。設成 `true` 時 log 改走 SDK 已標 deprecated 的 `LoggingHandler`，`opentelemetry-instrumentation-logging` 跳過自己的 handler；SDK 拿掉 `LoggingHandler` 的那一版起 log 不再送出，不會有錯誤訊息。不設時由 instrumentation-logging 的 handler 送 log，詳見 [`python/README.md`](python/README.md) 的「log」。
+Python 不要設 `OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED`。設成 `true` 時 log 改走 SDK 已標 deprecated 的 `LoggingHandler`，`opentelemetry-instrumentation-logging` 跳過自己的 handler；SDK 拿掉 `LoggingHandler` 的那一版起，預期 log 不再送出，也不會有錯誤訊息。不設時由 instrumentation-logging 的 handler 送 log，詳見 [`python/README.md`](python/README.md) 的「log」。
 
 OpenObserve 的位址與認證只給 Collector，應用端不需要也不應該拿到。
 
