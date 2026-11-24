@@ -40,6 +40,15 @@ opentelemetry-instrument celery -A <模組> worker --loglevel=INFO
 
 compose 裡 web 與 worker 共用映像時，各自設 `OTEL_SERVICE_NAME`（`<項目>-api`、`<項目>-worker`）。
 
+## log
+
+已在第一個接入的項目驗過：`opentelemetry-instrumentation-logging==0.66b2` 配 SDK 1.45.2，Django＋gunicorn、FastAPI、MCP server 三種服務，經 Collector 與直送 OpenObserve 兩種跑法，log 都帶上 trace id。
+
+- 套件：`opentelemetry-instrumentation-logging`，確認它在 requirements 裡並釘同一版（`0.66b2`）
+- 環境變數：照 `otel/README.md`「應用端環境變數」表設 `OTEL_LOGS_EXPORTER` 與 `OTEL_PYTHON_LOG_CODE_ATTRIBUTES`，表下那句說明的舊變數不要設
+- 機制：`opentelemetry-instrument` 啟動時 instrumentation-logging 自己裝 handler（`OTEL_PYTHON_LOG_AUTO_INSTRUMENTATION`，預設開，不必設）。它的 handler 預設不帶程式碼位置三欄，少了上面那個變數不會有錯誤訊息，只是 OpenObserve 裡查不到那三欄
+- 驗：`check/check_trace.py --log-service <項目>-<服務>`
+
 ## 已知要注意的
 
 ### gunicorn 多 worker
@@ -74,4 +83,3 @@ client.post(url, headers=headers, ...)
 
 - uvicorn 帶 `--workers` 大於 1 或 `--reload` 時，子程序是否都有注入
 - celery prefork pool 的子程序是否都送出 span，以及 task 的 span 是否接在發出 task 的請求下面
-- log 是否帶上 trace id 進到 OpenObserve（`OTEL_LOGS_EXPORTER=otlp` 加 `OTEL_PYTHON_LOGGING_AUTO_INSTRUMENTATION_ENABLED=true`），用 `check/check_trace.py --log-service` 驗
