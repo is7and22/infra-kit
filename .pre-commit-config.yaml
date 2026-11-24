@@ -1,0 +1,12 @@
+# 共用檢查。forbidden-text 預設不掃本檔（本檔含 pattern 字面）；不要寫 exclude，會蓋掉這個預設
+repos:
+  - repo: https://github.com/is7and22/dev-checks
+    rev: v0.2.0
+    hooks:
+      - id: ticket-format
+      - id: forbidden-text
+        args: [--pattern, "projects/dave", --pattern, "wiki/"]
+      - id: forbidden-text
+        name: forbidden-text（只掃 .md）
+        files: \.md$
+        args: [--pattern, "[["]
