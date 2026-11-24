@@ -34,7 +34,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - name: nginx -t（帶與不帶 load_module）
+      - name: nginx 片段：nginx -t、重複 include、傳播
         run: ./otel/nginx/test/run.sh
 
   pre-commit:

@@ -94,6 +94,10 @@ python3 vendor/infra-kit/otel/check/check_trace.py \
 
 結束碼 0 全部到齊；1 逾時仍有缺，訊息列出缺哪個服務的 span 或 log；2 參數、認證或連線錯誤（不等到逾時）。在 Python 測試裡用 `check_trace.check_trace(...)`，回傳 `Result`（`ok`、`missing_spans`、`missing_logs`）。
 
-查詢用 OpenObserve 的 `_search` API，以 SQL 依 `trace_id` 欄位過濾、依 `service_name` 欄位分組。這兩個欄位名在 OpenObserve v1.1.2 實測成立（faninsights）；版本不同而對不上時改 `check_trace()` 的 `service_field`、`trace_id_field` 參數。其他 resource 屬性的展開不一定只是把點換成底線：`service.instance.id` 展開成 `service_service_instance_id`，自己寫 SQL 前先在 OpenObserve 看實際欄位名。stream 還沒有資料時當作「還沒到」繼續等：OpenObserve 查不存在的 stream 回 400（`{"code":20002,"message":"Search stream not found: <stream>"}`，traces 與 logs 相同），判斷依據是回 400 或 404 且訊息含 `stream not found`（不分大小寫）；其他 400、404 直接以結束碼 2 結束。逾時而所有服務都缺時，先查位址與組織名。
+查詢用 OpenObserve 的 `_search` API，以 SQL 依 `trace_id` 欄位過濾、依 `service_name` 欄位分組。
+
+- 欄位名：`trace_id`、`service_name` 在 OpenObserve v1.1.2 已在實際項目實測成立。版本不同而對不上時，改 `check_trace()` 的 `service_field`、`trace_id_field` 參數。其他 resource 屬性不一定只是把點換成底線，例如 `service.instance.id` 展開成 `service_service_instance_id`，自己寫 SQL 前先在 OpenObserve 看實際欄位名
+- stream 不存在：OpenObserve 回 400，body 是 `{"code":20002,"message":"Search stream not found: <stream>"}`，traces 與 logs 相同。回 400 或 404 且訊息含 `stream not found`（不分大小寫）時當作「還沒到」繼續等；其他 400、404 直接以結束碼 2 結束
+- 逾時而所有服務都缺：先查位址與組織名
 
 整合測試要自己產生 trace id 並帶進請求（`traceparent: 00-<trace id>-<16 位 hex>-01`），nginx 會沿用它。

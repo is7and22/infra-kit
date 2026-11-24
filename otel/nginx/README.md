@@ -95,7 +95,7 @@ server {
 
 ## 要注意的
 
-- `otel_trace on` 不要放 http 層：所有 server 都會起 span，沒接的項目的 span 也進 OpenObserve，不會有錯誤訊息
+- `otel_trace on` 不要放 http 層：所有 server 都會起 span，沒接的項目的 span 也進 OpenObserve，不會有錯誤訊息。只搬這一行而 `otel_trace_context propagate` 留在 server 層時，沒接的 server 轉給上游的 `traceparent` 也不變，從上游看不出來；`test/run.sh` 用檢查 `http.conf` 擋這件事
 - 改設定後一定跑 `nginx -t` 再 reload。漏了 `load_module` 時 `nginx -t` 會失敗（`unknown directive "otel_exporter"`）；若沒跑 `nginx -t` 直接 reload，舊設定繼續跑，看起來正常，但沒有任何 span，也不會有錯誤訊息
 - `otel_exporter` 的主機名在 `nginx -t` 時不解析，Collector 沒起來 nginx 照樣能起，span 會送不出去
 - access log 想帶 trace id 可用變數 `$otel_trace_id`
