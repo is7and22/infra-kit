@@ -10,7 +10,7 @@ trap 'rm -rf "$TMP"' EXIT
 grep -v '^load_module' "$HERE/nginx.conf" > "$TMP/nginx-no-module.conf"
 
 run() {
-    docker run --rm --add-host otel-collector:192.0.2.10 \
+    docker run --rm \
         -v "$HERE/../otel.conf:/etc/nginx/otel/otel.conf:ro" \
         -v "$1:/etc/nginx/nginx.conf:ro" \
         "$IMAGE" nginx -t
@@ -20,8 +20,14 @@ echo "== 帶 load_module =="
 run "$HERE/nginx.conf"
 
 echo "== 拿掉 load_module（預期失敗）=="
-if run "$TMP/nginx-no-module.conf"; then
+if run "$TMP/nginx-no-module.conf" > "$TMP/out" 2>&1; then
+    cat "$TMP/out"
     echo "FAIL：拿掉 load_module 仍通過 nginx -t" >&2
+    exit 1
+fi
+cat "$TMP/out"
+if ! grep -q 'unknown directive "otel_' "$TMP/out"; then
+    echo "FAIL：nginx -t 失敗，但原因不是缺模組" >&2
     exit 1
 fi
 echo "OK：拿掉 load_module 時 nginx -t 失敗，如預期"

@@ -10,4 +10,5 @@ services:
       # 值放項目的 .env（不進 git），這裡只傳名字
       OPENOBSERVE_OTLP_ENDPOINT: ${OPENOBSERVE_OTLP_ENDPOINT:?}
       OPENOBSERVE_AUTH: ${OPENOBSERVE_AUTH:?}
+      OPENOBSERVE_STREAM: ${OPENOBSERVE_STREAM:-default}
     restart: unless-stopped

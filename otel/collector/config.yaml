@@ -5,7 +5,7 @@
 # 需要的環境變數：
 #   OPENOBSERVE_OTLP_ENDPOINT  例 https://o2.example.org/api/<組織>（otlphttp 會自己接 /v1/traces、/v1/logs）
 #   OPENOBSERVE_AUTH           完整的 Authorization 標頭值，例 "Basic <base64(帳號:密碼)>"
-#   OPENOBSERVE_STREAM         選填，log 寫進哪個 stream，預設 default
+#   OPENOBSERVE_STREAM         選填，traces 與 logs 寫進哪個 stream，預設 default（traces 是否也照這個標頭分流，待驗證）
 
 receivers:
   otlp:

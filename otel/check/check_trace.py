@@ -75,10 +75,13 @@ def _services(api: str, auth: str, search_type: str, stream: str, trace_id: str,
     except urllib.error.HTTPError as e:
         detail = e.read().decode(errors="replace")[:300]
         if e.code == 404 and "stream" in detail.lower():
-            return set()  # stream 還沒有任何資料：當作還沒到，繼續等
+            # stream 還沒有任何資料：當作還沒到，繼續等。回應格式待 faninsights 驗證
+            return set()
         raise CheckError(f"OpenObserve 查 {search_type} 回 {e.code}：{detail}") from e
     except urllib.error.URLError as e:
         raise CheckError(f"連不到 OpenObserve（{api}）：{e.reason}") from e
+    except (OSError, ValueError) as e:  # 讀回應逾時、連線重設、回應不是 JSON
+        raise CheckError(f"查 OpenObserve 失敗（{api}）：{e!r}") from e
     return {str(h[service_field]) for h in payload.get("hits", []) if h.get(service_field)}
 
 
@@ -134,7 +137,7 @@ def main(argv: list[str] | None = None) -> int:
                    help="期望出現帶該 trace id 的 log 的 service.name，可重複")
     p.add_argument("--timeout", type=float, default=60, help="等待上限秒數")
     p.add_argument("--interval", type=float, default=2)
-    p.add_argument("--trace-stream", default="default")
+    p.add_argument("--trace-stream", default=os.environ.get("OPENOBSERVE_STREAM", "default"))
     p.add_argument("--log-stream", default=os.environ.get("OPENOBSERVE_STREAM", "default"))
     p.add_argument("--lookback", type=int, default=3600, help="往回查幾秒")
     a = p.parse_args(argv)
@@ -153,6 +156,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"trace {a.trace_id}：全部到齊")
         return 0
     print(f"trace {a.trace_id}：逾時 {a.timeout:g} 秒仍有缺\n{r.describe()}", file=sys.stderr)
+    if set(r.missing_spans) == set(a.span_service) and set(r.missing_logs) == set(a.log_service):
+        print("所有服務都缺：先查位址、組織名與 stream 名", file=sys.stderr)
     return 1
 
 

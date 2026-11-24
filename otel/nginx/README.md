@@ -48,7 +48,6 @@ Docker Hub 的官方 nginx 映像有 `<版本>-otel`、`<版本>-alpine-otel` �
 
 ## 要注意的
 
-- 改設定後一定跑 `nginx -t` 再 reload。漏了 `load_module` 時 `nginx -t` 會失敗（`unknown directive "otel_exporter"`）；若沒跑 `nginx -t` 直接 reload，舊設定繼續跑，看起來正常，其實沒有任何 span，也不會有錯誤訊息
-- `otel_trace_context propagate` 從 http 層繼承到每個 server。同一個 nginx 裡如果有請求經過兩個 server（例如 proxy 到同一個 nginx 的另一個 server），第二個 server 會再改寫一次 `traceparent`；那種 server 加 `otel_trace_context ignore;`
+- 改設定後一定跑 `nginx -t` 再 reload。漏了 `load_module` 時 `nginx -t` 會失敗（`unknown directive "otel_exporter"`）；若沒跑 `nginx -t` 直接 reload，舊設定繼續跑，看起來正常，但沒有任何 span，也不會有錯誤訊息
 - `otel_exporter` 的主機名在 `nginx -t` 時不解析，Collector 沒起來 nginx 照樣能起，span 會送不出去
 - access log 想帶 trace id 可用變數 `$otel_trace_id`

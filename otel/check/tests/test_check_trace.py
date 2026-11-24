@@ -28,6 +28,7 @@ class FakeOpenObserve:
 
     def __init__(self):
         self.rows = {"traces": [], "logs": []}
+        self.missing_stream = None
         self.requests = []
         fake = self
 
@@ -42,6 +43,9 @@ class FakeOpenObserve:
                     self._send(401, {"code": 401, "message": "Unauthorized Access"})
                     return
                 m = re.match(r"^/api/demo/_search\?type=(traces|logs)$", self.path)
+                if m and fake.missing_stream == m.group(1):
+                    self._send(404, {"code": 404, "message": "Search stream not found"})
+                    return
                 if not m:
                     self._send(404, {"code": 404, "message": "not found"})
                     return
@@ -134,6 +138,26 @@ class CheckTraceTest(unittest.TestCase):
         self.assertTrue(result.ok, result.describe())
         self.assertLess(time.monotonic() - start, 4)
         self.assertGreater(len(self.o2.requests), 2)
+
+    def test_stream_not_found_keeps_waiting(self):
+        self.o2.add_all()
+        self.o2.missing_stream = "logs"
+        timer = threading.Timer(0.3, setattr, (self.o2, "missing_stream", None))
+        timer.start()
+        self.addCleanup(timer.cancel)
+        result = check_trace.check_trace(self.o2.api, AUTH, TRACE, SERVICES, SERVICES,
+                                         timeout=5, interval=0.05)
+        self.assertTrue(result.ok, result.describe())
+
+    def test_other_404_fails_fast_with_exit_2(self):
+        code, msg = self.run_cli("--url", self.o2.api.replace("/demo", "/wrong-org"), "--timeout", "10")
+        self.assertEqual(code, 2, msg)
+        self.assertIn("404", msg)
+
+    def test_all_missing_hints_at_config(self):
+        code, msg = self.run_cli()
+        self.assertEqual(code, 1, msg)
+        self.assertIn("先查位址", msg)
 
     def test_wrong_auth_fails_fast_with_exit_2(self):
         self.o2.add_all()

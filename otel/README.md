@@ -61,7 +61,7 @@ OpenObserve 的位址與認證只給 Collector，應用端不需要也不應該�
 |---|---|
 | `OPENOBSERVE_OTLP_ENDPOINT` | `https://<OpenObserve 主機>/api/<組織>`，例 `https://o2.example.org/api/<組織>` |
 | `OPENOBSERVE_AUTH` | 完整的 Authorization 標頭值，`Basic <base64(帳號:密碼)>` |
-| `OPENOBSERVE_STREAM` | 選填，log 寫進哪個 stream，預設 `default` |
+| `OPENOBSERVE_STREAM` | 選填，traces 與 logs 寫進哪個 stream，預設 `default`（traces 是否也照這個標頭分流，待 faninsights 驗證）。`check_trace.py` 的 `--trace-stream`、`--log-stream` 預設也讀它 |
 
 值放項目的 `.env` 或部署機的祕密存放處，不進 git。
 
@@ -94,6 +94,6 @@ python3 vendor/infra-kit/otel/check/check_trace.py \
 
 結束碼 0 全部到齊；1 逾時仍有缺，訊息列出缺哪個服務的 span 或 log；2 參數、認證或連線錯誤（不等到逾時）。在 Python 測試裡用 `check_trace.check_trace(...)`，回傳 `Result`（`ok`、`missing_spans`、`missing_logs`）。
 
-查詢用 OpenObserve 的 `_search` API，以 SQL 依 `trace_id` 欄位過濾、依 `service_name` 欄位分組。這兩個欄位名是 OpenObserve 收 OTLP 時的預設展開，待 faninsights 驗證；對不上時改 `check_trace()` 的 `service_field`、`trace_id_field` 參數。
+查詢用 OpenObserve 的 `_search` API，以 SQL 依 `trace_id` 欄位過濾、依 `service_name` 欄位分組。這兩個欄位名是 OpenObserve 收 OTLP 時的預設展開，待 faninsights 驗證；對不上時改 `check_trace()` 的 `service_field`、`trace_id_field` 參數。stream 還沒有資料時當作「還沒到」繼續等，判斷依據是回 404 且訊息含 stream，實際回應格式也待 faninsights 驗證。逾時而所有服務都缺時，先查位址與組織名。
 
 整合測試要自己產生 trace id 並帶進請求（`traceparent: 00-<trace id>-<16 位 hex>-01`），nginx 會沿用它。

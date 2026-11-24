@@ -46,17 +46,17 @@ compose 裡 web 與 worker 共用映像時，各自設 `OTEL_SERVICE_NAME`（`<�
 
 - 不必寫 `post_fork` hook：SDK 的批次處理器（`BatchSpanProcessor`、`BatchLogRecordProcessor`）在 fork 後自己重建背景執行緒
 - 不開 `preload_app`：開了之後 app 在 master 匯入，instrumentation 的狀態跟著 fork，行為與上面不同，待 faninsights 驗證前不要用
-- 指標關掉（`OTEL_METRICS_EXPORTER=none`）：指標的定期匯出器不會在 fork 後重建
+- 指標關掉（`OTEL_METRICS_EXPORTER=none`）：本版不收指標，Collector 也沒有 metrics pipeline
 
 ### 框架已內建 OTel 中介層
 
-某一層已經由框架或函式庫內建的 OTel 中介層開 span 時，自動注入的 instrumentation 會再開一個，兩者各起一棵樹，trace 斷成兩條。用環境變數關掉重複的那一層：
+某一層已經由框架或函式庫內建的 OTel 中介層開 span 時，自動注入的 instrumentation 會再開一個。結果是同一條 trace 裡出現重複的巢狀 span，或另起一棵樹、trace 斷成兩條，看內建中介層怎麼取 context（待 faninsights 驗證）。用環境變數關掉重複的那一層：
 
 ```
 OTEL_PYTHON_DISABLED_INSTRUMENTATIONS=fastapi
 ```
 
-值是 instrumentation 的名字（套件名去掉 `opentelemetry-instrumentation-`），多個用逗號分隔。
+值是 instrumentation 的 entry point 名（多半等於套件名去掉 `opentelemetry-instrumentation-`），多個用逗號分隔。
 
 ### 沒有 instrumentation 的 HTTP 客戶端
 
