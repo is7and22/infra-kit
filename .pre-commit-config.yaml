@@ -1,4 +1,5 @@
 # 共用檢查。forbidden-text 預設不掃本檔（本檔含 pattern 字面）；不要寫 exclude，會蓋掉這個預設
+# 本 repo 公開：客戶主機位址、主機名、網域、金鑰一律不得進來
 repos:
   - repo: https://github.com/is7and22/dev-checks
     rev: v0.2.0
@@ -10,3 +11,15 @@ repos:
         name: forbidden-text（只掃 .md）
         files: \.md$
         args: [--pattern, "[["]
+      - id: forbidden-text
+        name: forbidden-text（公開 repo：客戶資料與金鑰）
+        args:
+          - --pattern=172.25.
+          - --pattern=172.29.
+          - --pattern=FAQ-
+          - --pattern=faq-
+          - --pattern=taipei
+          - --pattern=臺北市
+          - --pattern=台北市
+          - --pattern=dd5dd
+          - --pattern=PRIVATE KEY
