@@ -1,0 +1,13 @@
+# 範例：項目 compose 裡的 Collector 服務。本 repo 以 submodule 掛在 vendor/infra-kit。
+# 應用與 nginx 用服務名 otel-collector 連它；nginx 片段寫死的就是 otel-collector:4317。
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.165.0
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./vendor/infra-kit/otel/collector/config.yaml:/etc/otelcol-contrib/config.yaml:ro
+    environment:
+      # 值放項目的 .env（不進 git），這裡只傳名字
+      OPENOBSERVE_OTLP_ENDPOINT: ${OPENOBSERVE_OTLP_ENDPOINT:?}
+      OPENOBSERVE_AUTH: ${OPENOBSERVE_AUTH:?}
+    restart: unless-stopped

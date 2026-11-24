@@ -10,7 +10,7 @@
 
 | 目錄 | 元件 | 狀態 |
 |---|---|---|
-| （尚無） | | |
+| `otel/` | OTel 追蹤：Collector 設定、nginx 模組片段、Python 零程式注入包法、串接檢查 | v0.1 |
 
 預計收進來的：OTel 追蹤（各語言的零程式注入包法、Collector 設定與 ansible role、串接測試）、nginx 片段、離線安裝 Docker 的 ansible playbook。
 

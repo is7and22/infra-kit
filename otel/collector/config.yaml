@@ -1,0 +1,41 @@
+# 每台主機（本機開發則每個 compose）一個 Collector：收應用與 nginx 的 OTLP，轉送 OpenObserve。
+# 所有位址與認證只從環境變數讀，本檔不放任何值。語法一律 ${env:NAME}；寫成 $NAME 不會報錯，
+# 送出的是字面字串，OpenObserve 回 401，只在 Collector 的 log 看得到。
+#
+# 需要的環境變數：
+#   OPENOBSERVE_OTLP_ENDPOINT  例 https://o2.example.org/api/<組織>（otlphttp 會自己接 /v1/traces、/v1/logs）
+#   OPENOBSERVE_AUTH           完整的 Authorization 標頭值，例 "Basic <base64(帳號:密碼)>"
+#   OPENOBSERVE_STREAM         選填，log 寫進哪個 stream，預設 default
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 25
+  batch: {}
+
+exporters:
+  otlphttp/openobserve:
+    endpoint: ${env:OPENOBSERVE_OTLP_ENDPOINT}
+    headers:
+      Authorization: ${env:OPENOBSERVE_AUTH}
+      stream-name: ${env:OPENOBSERVE_STREAM:-default}
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlphttp/openobserve]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlphttp/openobserve]
