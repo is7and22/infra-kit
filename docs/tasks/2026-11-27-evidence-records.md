@@ -73,3 +73,4 @@ authorized: 「寫單派出去」（2026-11-27，使用者對協調 session，�
 
 ## 進度
 
+- 17:36 infra-kit-03：步 1–5 做完（commit 90eba8e）：callback 記 `command`、`output`（超過 200 行截斷）；轉接器依 `evidence` 寫 `部署事實.json`、元件對照不符寫 `problems`；README 加 E1–E8、改 V3、V4、V6、C1、C3，原「七、八」改成「八、九」。驗收 2–5 有測試；驗收 5 另用 origin/main 的轉接器與新轉接器跑同一份舊假項目，除 `generated_at` 外逐字相同。突變：拿掉 `{version}` 的 `re.escape`，`test_compare_red_and_green` 的 `v1x2x3` 那個子案例變紅，已還原。剩下：步 6 等 acceptance-docs 的 admin-manual 併 main，現在 `test_exit_ok_and_passes_check_facts` 因 schema 複本不認得 `evidence` 而紅
