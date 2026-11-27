@@ -55,6 +55,9 @@
         report_service: "PostgreSQL / 5432"
         report_method: "測試方式文字"
         report_hosts: "{{ [other_host] }}"
+        # 引用被跳過、沒有 stdout 的 register：skipped 時不代入，report_hosts 不能被蓋掉
+        report_command: uname -r
+        report_output: "{{ skipped_out.stdout }}"
       ansible.builtin.debug:
         msg: 不會跑
       when: inventory_hostname in report_hosts and not ansible_check_mode

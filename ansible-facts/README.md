@@ -180,7 +180,7 @@ filter_plugins = ./vendor/infra-kit/ansible-facts/filter_plugins
 | E5 | 那一步要帶 `report_command` 與 `report_output`（V3）。每台的取法同 V7：最近一次正式執行，skipped、`report_hosts` 不含這台、代入失敗都不採；`evidence` 那步與元件那步各取各的最近一次，不要求同一次 | `evidence[]` 的 `command`、`output`、`time` | 沒採到或紀錄沒有 `command`、`output` 的主機不輸出那筆，轉接器寫進 `problems`，點名 `id` 與主機 |
 | E6 | 順序照 `evidence` 清單，同一項內照 `hosts` 展開的順序。`project.yaml` 沒有 `evidence` 時不輸出這個鍵 | `evidence` 的順序 | 不是違反，是規則 |
 | E7 | `components[]` 可寫 `evidence: {id, line}`，兩個都是字串：`id` 是 `evidence` 裡的一項，`line` 是正規式，可含 `{version}`。含 `{version}` 的元件，`version_from` 是 `record` 或只有一個鎖定處 | 不填；給 E8 對照 | 有錯誤訊息 |
-| E8 | 對照：`check.result` 是 `pass` 的實例，同主機那筆 `evidence[id]` 的 `output` 要有一行含符合 `line` 的片段（逐行 `re.search`）。`{version}` 代入該實例的版本（`record` 取紀錄的版本，鎖定處取上游版本），代入前先跳脫。`check` 是 `null` 或 `fail` 的不對照 | `problems[]` | 找不到那筆、沒有版本可代入、沒有一行符合：轉接器寫進 `problems`，點名元件、主機、`id`、`line`。`line` 寫得太寬（例：只寫 `Up`）時對照永遠綠，無錯誤訊息 |
+| E8 | 對照：`check.result` 是 `pass` 的實例，同主機那筆 `evidence[id]` 的 `output` 要有一行含符合 `line` 的片段（逐行 `re.search`）。`{version}` 代入該實例的版本（`record` 取紀錄的版本，鎖定處取上游版本），代入前先跳脫。`check` 是 `null` 或 `fail` 的不對照 | `problems[]` | 找不到那筆、沒有版本可代入、沒有一行符合（輸出超過 200 行、符合的那行被截掉也算）：轉接器寫進 `problems`，點名元件、主機、`id`、`line`。`line` 寫得太寬（例：只寫 `Up`）時對照永遠綠，無錯誤訊息 |
 
 ## 八、參考項目改過的地方
 

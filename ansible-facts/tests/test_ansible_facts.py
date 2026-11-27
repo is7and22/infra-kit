@@ -214,8 +214,9 @@ class AdapterOkTest(unittest.TestCase):
         # V8 一則；app-2 判 pass 而紀錄沒有版本，{version} 代不進去，對照不了一則
         msgs = [p['message'] for p in self.doc['problems']]
         self.assertEqual(len(msgs), 2, msgs)
-        self.assertIn('component app 的 app-2（evidence docker_ps', msgs[1])
-        self.assertIn('沒有版本可代入', msgs[1])
+        app2 = [m for m in msgs if 'component app 的 app-2（evidence docker_ps' in m]
+        self.assertEqual(len(app2), 1, msgs)
+        self.assertIn('沒有版本可代入', app2[0])
 
     def test_evidence(self):
         # E5、E6：evidence 清單順序、同一項內照 hosts 順序；title 代入 {host}；
@@ -317,7 +318,7 @@ class AdapterEvidenceTest(unittest.TestCase):
         _, msgs = self.app1_compare(self.with_app1_line('app\texample/app:v1.2.3\tUp 5 minutes'))
         self.assertEqual(msgs, [])
 
-    def test_compare_skips_fail_and_null(self):
+    def test_compare_skips_fail(self):
         # check 是 fail 的實例不對照：元件那步改 failed，輸出不符也不點名
         tmp = self.with_app1_line('app\texample/app:v1.2.4\tUp 2 hours')
         f = tmp / 'deploy-app-20261121-100000.jsonl'
@@ -351,16 +352,35 @@ class AdapterEvidenceTest(unittest.TestCase):
         self.assertTrue(any(m.startswith('evidence docker_ps 的 app-1：沒有正式執行的紀錄') for m in msgs), msgs)
         self.assertTrue(any('component app 的 app-1' in m and 'evidence 沒有這台的那筆' in m for m in msgs), msgs)
 
-    def test_record_without_command_or_output(self):
-        def edit(lines):
-            del ps_rec(lines, 'app-2')['output']
-            ps_rec(lines, 'app-1')['result'] = 'skipped'
-        rc, err, doc, _ = run(results=edit_results(edit))
-        self.assertEqual(rc, 0, err)
-        self.assertEqual([(e['id'], e['host']) for e in doc['evidence'] if e['id'] == 'docker_ps'], [])
-        msgs = [p['message'] for p in doc['problems']]
-        self.assertTrue(any('evidence docker_ps 的 app-2：紀錄沒有 output' in m for m in msgs), msgs)
-        self.assertTrue(any('evidence docker_ps 的 app-1：最近一次正式執行是 skipped' in m for m in msgs), msgs)
+    def test_record_not_adopted(self):
+        # E5：每種不採的情形，那台不輸出、problems 點名原因
+        cases = [
+            ('紀錄沒有 output', lambda r: r.pop('output')),
+            ('紀錄沒有 command', lambda r: r.pop('command')),
+            ('最近一次正式執行是 skipped', lambda r: r.update(result='skipped')),
+            ('report_* 代入失敗', lambda r: r.update(report_error=True)),
+            ("report_hosts ['app-1'] 不含這台", lambda r: r.update(report_hosts=['app-1'])),
+        ]
+        for why, change in cases:
+            with self.subTest(why=why):
+                rc, err, doc, _ = run(results=edit_results(lambda lines: change(ps_rec(lines, 'app-2'))))
+                self.assertEqual(rc, 0, err)
+                self.assertEqual([e['host'] for e in doc['evidence'] if e['id'] == 'docker_ps'], ['app-1'])
+                msgs = [p['message'] for p in doc['problems']]
+                self.assertTrue(any(m.startswith('evidence docker_ps 的 app-2：' + why) for m in msgs), msgs)
+
+    def test_compare_lock_version(self):
+        # E8：鎖定處的元件代入上游版本（1.0.3），不是完整值（example/web:v1.0.3）
+        add = replace(P, "    verify: {playbook: install-web.yml, step: 驗證：映像 Id 與清單一致}\n",
+                      "    verify: {playbook: install-web.yml, step: 驗證：映像 Id 與清單一致}\n    evidence: {id: uname, line: 'web:v{version}$'}\n")
+        for output, n in (('example/web:v1.0.3', 0), ('example/web:v1.0.4', 1)):
+            with self.subTest(output=output):
+                def edit(lines):
+                    next(x for x in lines if x.get('host') == 'web-1' and x.get('step') == '驗證：核心版本')['output'] = output
+                rc, err, doc, _ = run(add, results=edit_results(edit))
+                self.assertEqual(rc, 0, err)
+                msgs = [p['message'] for p in doc['problems'] if 'component web 的 web-1' in p['message']]
+                self.assertEqual(len(msgs), n, msgs)
 
     def test_no_evidence_section(self):
         # project.yaml 沒有 evidence：不輸出這個鍵

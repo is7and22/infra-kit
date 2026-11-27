@@ -127,6 +127,8 @@ class VerifyRecordsTest(unittest.TestCase):
         ran, skipped = by_step['驗證：適用主機（no_log）'], by_step['驗證：不適用主機']
         self.assertEqual((ran['result'], ran['report_hosts']), ('ok', ['localhost']))
         self.assertEqual((skipped['result'], skipped['report_hosts']), ('skipped', ['db99']))
+        self.assertNotIn('report_error', skipped)
+        self.assertNotIn('output', skipped)
         self.assertNotIn('report_error', ran)
         self.assertNotIn('report_hosts', by_step['驗證：成功'])
 

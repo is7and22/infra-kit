@@ -93,9 +93,13 @@ class CallbackModule(CallbackBase):
         with open(self._path, 'a', encoding='utf-8') as f:
             f.write(json.dumps(record, ensure_ascii=False) + '\n')
 
-    def _report_text(self, task, host):
+    def _report_text(self, task, host, status):
         task_vars = task.vars or {}
         raw = {dst: task_vars[src] for src, dst in REPORT_KEYS if src in task_vars}
+        if status == 'skipped':
+            # 跳過的步驟，它引用的 register 多半也被跳過、沒有 stdout，代入會失敗而蓋掉 report_hosts；轉接器也不採 skipped 的輸出
+            raw.pop('command', None)
+            raw.pop('output', None)
         if not raw and 'report_hosts' not in task_vars:
             return {}
         try:
@@ -130,7 +134,7 @@ class CallbackModule(CallbackBase):
             'result': status,
             'check': self._check,
         }
-        record.update(self._report_text(task, result.host))
+        record.update(self._report_text(task, result.host, status))
         self._write(record)
 
     def v2_runner_on_ok(self, result):
