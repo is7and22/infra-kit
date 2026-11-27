@@ -30,7 +30,7 @@ mise x uv@0.13.9 -- uvx --from ansible-core==2.22.0 python ansible/vendor/infra-
 ```
 
 - ansible-core 的版本要與執行 playbook 的跳板相同（目前 2.22.0）：inventory 由 `ansible-inventory --list` 解析，版本不同時群組與變數的疊法可能不同
-- 這個 Python 是 3.12 以上；Mac 的系統 python3（3.9）沒有 PyYAML，不能直接跑
+- ansible-core 2.22 要 Python 3.13 以上，uvx 會自己挑合適的版本。Mac 的系統 python3（3.9）裝不了 ansible-core 2.22、也沒有 PyYAML，不能直接跑
 - `ansible-inventory` 用同一個 Python 環境的那支；環境變數 `ANSIBLE_INVENTORY_CMD`（空白分隔）可換
 - `--results` 換驗證紀錄的目錄，預設 `<ansible-dir>/logs/results`；給了而不是目錄時結束碼 2（多半是路徑打錯）。紀錄不進版控，另開的 worktree 沒有紀錄：每一項都寫 `null` 與「沒有正式執行的紀錄」，轉接器在 stderr 提醒，結束碼照樣是 0
 
@@ -48,6 +48,7 @@ mise x uv@0.13.9 -- uvx --from ansible-core==2.22.0 --with jsonschema==4.26.0 \
     python -m unittest discover -s ansible-facts/tests -t ansible-facts/tests
 ```
 
+- 要的 Python 與相依：Python 3.13 以上，裝 `ansible-core==2.22.0`（帶 PyYAML 與 `ansible-inventory`、`ansible-playbook`）與 `jsonschema==4.26.0`。上面的 uvx 指令一次備齊；用系統 python3 直接跑會 `ModuleNotFoundError: yaml`。CI 用 setup-python 3.13 加 `pip install ansible-core==2.22.0 jsonschema==4.26.0`
 - `test_ansible_facts.py`：假項目照規則寫的輸出、紀錄挑不到結果的情形，與每條有錯誤訊息的規則一份會紅的變體（`CASES`；另一條測試對照本檔的規則表，漏寫就紅）
 - 輸出用 `tests/acceptance-docs/` 的 `check_facts.py` 與 schema 驗。那是驗收文件 repo 的複本，來源與更新方式見那個目錄的 README
 - `test_verify_records.py`：對 localhost 真的跑 `ansible-playbook`，`tests/callback/ansible.cfg` 照下一節的寫法啟用 callback
