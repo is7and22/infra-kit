@@ -111,6 +111,22 @@
         }
       }
     },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "title", "host", "command", "output", "time"],
+        "properties": {
+          "id": {"$ref": "#/$defs/name"},
+          "title": {"$ref": "#/$defs/text"},
+          "host": {"$ref": "#/$defs/name"},
+          "command": {"$ref": "#/$defs/text"},
+          "output": {"type": "string"},
+          "time": {"$ref": "#/$defs/time"}
+        }
+      }
+    },
     "problems": {
       "type": "array",
       "items": {

@@ -1,4 +1,4 @@
-"""檢查 部署事實.json：照 schemas/部署事實.schema.json 驗，再驗 schema 表達不了的規則（docs/部署事實格式.md F1–F12）。
+"""檢查 部署事實.json：照 schemas/部署事實.schema.json 驗，再驗 schema 表達不了的規則（docs/部署事實格式.md F1–F13）。
 
 用法：python check_facts.py <部署事實.json>
 全符合時結束碼 0；不符合時每項一行「<欄位路徑>：<代號> <哪裡不對>；<怎麼改>」，結束碼 1。
@@ -97,6 +97,13 @@ def rule_problems(doc) -> list[Problem]:
     for path, inst, _ in _check_instances(doc):
         if inst["host"] not in hosts:
             out.append(Problem(path + ".host", "F2", "主機 %s 不在 hosts；補進 hosts（含 IP）" % inst["host"]))
+    for i, ev in enumerate(doc.get("evidence", [])):
+        if ev["host"] not in hosts:
+            out.append(Problem("$.evidence[%d].host" % i, "F2", "主機 %s 不在 hosts；補進 hosts（含 IP）" % ev["host"]))
+
+    # F13：同一個 evidence id 同一台只一筆
+    for i, v in _dups(doc.get("evidence", []), lambda e: (e["id"], e["host"])):
+        out.append(Problem("$.evidence[%d]" % i, "F13", "evidence %s 在 %s 有兩筆；同一台只留最近一次正式執行的那筆" % v))
 
     # F3：連線端點的群組存在，而且有 label（本機服務的來源也要：測試規劃連線項目的句子用它）
     for i, link in enumerate(doc["links"]):
@@ -204,8 +211,8 @@ def main(argv=None) -> int:
     if problems:
         print("%s：%d 項不符，格式見 docs/部署事實格式.md" % (args.facts, len(problems)), file=sys.stderr)
         return 1
-    print("%s：符合部署事實格式（%d 台主機、%d 個元件、%d 條連線）" % (
-        args.facts, len(doc["hosts"]), len(doc["components"]), len(doc["links"])))
+    print("%s：符合部署事實格式（%d 台主機、%d 個元件、%d 條連線、%d 筆指令輸出）" % (
+        args.facts, len(doc["hosts"]), len(doc["components"]), len(doc["links"]), len(doc.get("evidence", []))))
     return 0
 
 
