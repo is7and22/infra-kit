@@ -1,4 +1,4 @@
-# test_verify_records.py 用的 playbook：對 localhost 跑四種「驗證：」步驟與一個不記的步驟
+# test_verify_records.py 用的 playbook：對 localhost 跑各種「驗證：」步驟與不記的步驟
 # 只對 localhost 跑
 - name: verify_records 測試
   hosts: localhost
@@ -58,6 +58,33 @@
       ansible.builtin.debug:
         msg: 不會跑
       when: inventory_hostname in report_hosts and not ansible_check_mode
+
+    # 指令輸出舉證：前面步驟 register 的 stdout 用 report_output 記下，report_command 是給人看的指令原文
+    # （含 {{ }} 的指令原文用 !unsafe，免得被當成變數代入；用 >- 區塊，\t 照原文留著）
+    - name: 讀容器清單
+      ansible.builtin.command: printf 'NAMES\tIMAGE\tSTATUS\napp\texample/app:v1.2.3\tUp 2 hours\n'
+      register: ps_out
+      changed_when: false
+
+    - name: 驗證：指令輸出
+      vars:
+        report_command: !unsafe >-
+          docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
+        report_output: "{{ ps_out.stdout }}"
+      ansible.builtin.debug:
+        msg: ok
+
+    - name: 讀 300 行
+      ansible.builtin.command: seq 1 300
+      register: long_out
+      changed_when: false
+
+    - name: 驗證：長輸出
+      vars:
+        report_command: seq 1 300
+        report_output: "{{ long_out.stdout }}"
+      ansible.builtin.debug:
+        msg: ok
 
     - name: 不是驗證的步驟
       ansible.builtin.debug:

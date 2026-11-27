@@ -4,11 +4,14 @@
 # 輸出：<playbook 所在目錄>/logs/results/<playbook 檔名>-<開始時間>.jsonl，一筆一行
 #       環境變數 VERIFY_RECORDS_DIR 可改輸出目錄（測試用）
 #
-# 每筆只有這些欄位，不記任何步驟輸出或參數（有些驗證步驟的參數帶密碼，no_log 的也一樣）：
-#   {"type": "step", "time", "playbook", "play", "host", "step", "result", "check", "service", "method", "version"}
+# 每筆只有這些欄位，不記步驟本身的輸出或參數（有些驗證步驟的參數帶密碼，no_log 的也一樣）：
+#   {"type": "step", "time", "playbook", "play", "host", "step", "result", "check", "service", "method", "version", "command", "output"}
 #   result 是 ok／failed／skipped／unreachable；check 是有沒有帶 --check
-#   service、method、version 是驗證步驟的 vars 裡 report_service、report_method、report_version 代入變數後的文字，沒寫就沒有這欄；
+#   service、method、version、command、output 是驗證步驟的 vars 裡 report_service、report_method、report_version、
+#   report_command、report_output 代入變數後的文字，沒寫就沒有這欄；
 #   report_version 給測試報告書的軟體表：從主機或容器讀到的版本（前面步驟 register 的值），不要寫鎖定的變數
+#   report_command 是給人看的指令原文，report_output 是前面步驟 register 的 stdout（驗收文件的舉證）。
+#   output 超過 OUTPUT_MAX_LINES 行時只記前面那些行，末行註明截斷。只給不含密碼的指令（docker ps、版本查詢）
 #   report_hosts 是 vars 裡 report_hosts 代入後的主機名清單（這步適用哪些主機），沒寫就沒有這欄
 #   代入失敗（含 report_hosts 代入後不是字串清單）時寫 "report_error": true，不寫錯誤內容（錯誤訊息可能帶變數值）
 # playbook 結束時另寫一行總結，轉接器用它判斷這次執行是否完整（中途中斷就沒有這一行）：
@@ -37,13 +40,22 @@ DOCUMENTATION = """
     type: aggregate
     short_description: 把「驗證：」步驟寫成 jsonl 紀錄
     description:
-      - 只記名稱以「驗證：」開頭的步驟的主機、結果、時間，不記步驟輸出與參數
+      - 只記名稱以「驗證：」開頭的步驟的主機、結果、時間與 report_* 代入後的文字，不記步驟本身的輸出與參數
     requirements:
       - ansible.cfg 的 callbacks_enabled 加 verify_records
 """
 
 PREFIX = '驗證：'
-REPORT_KEYS = (('report_service', 'service'), ('report_method', 'method'), ('report_version', 'version'))
+REPORT_KEYS = (('report_service', 'service'), ('report_method', 'method'), ('report_version', 'version'),
+               ('report_command', 'command'), ('report_output', 'output'))
+OUTPUT_MAX_LINES = 200
+
+
+def _truncate(text):
+    lines = text.splitlines()
+    if len(lines) <= OUTPUT_MAX_LINES:
+        return text
+    return '\n'.join(lines[:OUTPUT_MAX_LINES] + ['…（截斷：共 %d 行，只記前 %d 行）' % (len(lines), OUTPUT_MAX_LINES)])
 
 
 def _now():
@@ -90,6 +102,8 @@ class CallbackModule(CallbackBase):
             variables = self._play.get_variable_manager().get_vars(play=self._play, host=host, task=task)
             templar = Templar(loader=self._play._loader, variables=variables)
             out = {k: str(templar.template(v)) for k, v in raw.items()}
+            if 'output' in out:
+                out['output'] = _truncate(out['output'])
             if 'report_hosts' in task_vars:
                 hosts = templar.template(task_vars['report_hosts'])
                 if not isinstance(hosts, (list, tuple)) or not all(isinstance(h, str) for h in hosts):

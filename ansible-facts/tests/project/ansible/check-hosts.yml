@@ -1,0 +1,32 @@
+# 驗收文件的指令輸出舉證（evidence）：跑標準指令，驗證步驟帶 report_command 與 report_output
+- name: 查主機狀態
+  hosts: web:app
+  tasks:
+    - name: 讀核心版本
+      ansible.builtin.command: uname -r
+      register: uname_out
+      changed_when: false
+
+    - name: 驗證：核心版本
+      vars:
+        report_command: uname -r
+        report_output: "{{ uname_out.stdout }}"
+      ansible.builtin.debug:
+        msg: ok
+
+    - name: 讀容器清單
+      ansible.builtin.command: !unsafe >-
+        docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
+      register: docker_ps_out
+      changed_when: false
+      when: inventory_hostname in groups['app']
+
+    - name: 驗證：容器清單
+      vars:
+        report_command: !unsafe >-
+          docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'
+        report_output: "{{ docker_ps_out.stdout }}"
+        report_hosts: "{{ groups['app'] }}"
+      ansible.builtin.debug:
+        msg: ok
+      when: inventory_hostname in report_hosts

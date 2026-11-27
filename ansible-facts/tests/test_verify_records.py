@@ -69,6 +69,8 @@ class VerifyRecordsTest(unittest.TestCase):
             ('驗證：no_log 帶密碼', 'ok'),
             ('驗證：適用主機（no_log）', 'ok'),
             ('驗證：不適用主機', 'skipped'),
+            ('驗證：指令輸出', 'ok'),
+            ('驗證：長輸出', 'ok'),
             ('驗證：role 內的步驟', 'ok'),
             ('驗證：role 內的迴圈', 'ok'),
         ])
@@ -84,7 +86,7 @@ class VerifyRecordsTest(unittest.TestCase):
 
     def test_only_listed_fields(self):
         allowed = {'type', 'time', 'playbook', 'play', 'host', 'step', 'result', 'check', 'service', 'method',
-                   'version', 'report_hosts'}
+                   'version', 'report_hosts', 'command', 'output'}
         for x in self.steps(self.lines):
             self.assertLessEqual(set(x), allowed, x)
             self.assertEqual(x['host'], 'localhost')
@@ -104,6 +106,21 @@ class VerifyRecordsTest(unittest.TestCase):
         self.assertEqual(first['version'], '5000.0.1')
         self.assertNotIn('service', self.steps(self.lines)[1])
         self.assertNotIn('version', self.steps(self.lines)[1])
+
+    def test_command_and_output(self):
+        by_step = {x['step']: x for x in self.steps(self.lines)}
+        rec = by_step['驗證：指令輸出']
+        self.assertEqual(rec['command'], r"docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'")
+        self.assertEqual(rec['output'], 'NAMES\tIMAGE\tSTATUS\napp\texample/app:v1.2.3\tUp 2 hours')
+        self.assertNotIn('report_error', rec)
+        self.assertNotIn('output', by_step['驗證：成功'])
+
+    def test_long_output_truncated(self):
+        # 300 行只記前 200 行，末行註明截斷
+        out = {x['step']: x for x in self.steps(self.lines)}['驗證：長輸出']['output'].split('\n')
+        self.assertEqual(len(out), 201)
+        self.assertEqual(out[:200], [str(i) for i in range(1, 201)])
+        self.assertEqual(out[200], '…（截斷：共 300 行，只記前 200 行）')
 
     def test_report_hosts_templated_for_ok_and_skipped(self):
         by_step = {x['step']: x for x in self.steps(self.lines)}

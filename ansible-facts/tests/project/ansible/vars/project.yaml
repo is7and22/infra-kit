@@ -50,6 +50,21 @@ components:
     hosts: group:app
     version_from: record
     verify: {playbook: deploy-app.yml, step: 驗證：應用 容器在跑}
+    evidence: {id: docker_ps, line: 'example/app:{version}\s+Up '}
+
+# 驗收文件的指令輸出舉證：每項一台一筆
+evidence:
+  - id: docker_ps
+    title: "{host} 容器狀態檢查"
+    hosts: group:app
+    playbook: check-hosts.yml
+    step: 驗證：容器清單
+
+  - id: uname
+    title: 核心版本
+    hosts: group:web,app
+    playbook: check-hosts.yml
+    step: 驗證：核心版本
 
 group_labels:
   any: 使用者端

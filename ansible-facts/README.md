@@ -1,12 +1,12 @@
 # ansible-facts：用 ansible 部署的項目輸出部署事實
 
-驗收文件的軟體表與連線表，由一份與部署工具無關的 `部署事實.json` 組出來（格式由驗收文件 repo 的 `schemas/部署事實.schema.json` 定）。本目錄是 ansible 的轉接器：讀項目的 inventory、版本鎖定處、驗證紀錄與 `project.yaml`，寫出 `部署事實.json`。
+驗收文件的軟體表、連線表與指令輸出舉證，由一份與部署工具無關的 `部署事實.json` 組出來（格式由驗收文件 repo 的 `schemas/部署事實.schema.json` 定）。本目錄是 ansible 的轉接器：讀項目的 inventory、版本鎖定處、驗證紀錄與 `project.yaml`，寫出 `部署事實.json`。
 
 本檔是轉接器的規格：項目的 ansible 要照什麼結構寫，轉接器才讀得出來。
 
 | 檔 | 做什麼 | 誰用 |
 |---|---|---|
-| `callback_plugins/verify_records.py` | 把驗證步驟寫成紀錄（V5、V6） | 每次執行 playbook |
+| `callback_plugins/verify_records.py` | 把驗證步驟寫成紀錄（V3、V5、V6） | 每次執行 playbook |
 | `filter_plugins/connection_links.py` | `links` 展開成 ufw 規則、欄位檢查、埠代入 | 負責放行的 playbook（N4）；轉接器 |
 | `ansible_facts.py` | 轉接器：讀本檔規定的位置，寫出 `部署事實.json` | 項目產驗收文件前跑 |
 | `tests/` | 上面三支的測試，假項目在 `tests/project/` | 本 repo |
@@ -99,7 +99,7 @@ filter_plugins = ./vendor/infra-kit/ansible-facts/filter_plugins
 | 代號 | 規定 | 填哪個欄位 | 違反時 |
 |---|---|---|---|
 | L1 | ansible 放在 `<項目根>/ansible/`，`ansible.cfg` 與 playbook 都在這一層；設定裡的相對路徑都相對 `ansible/`。playbook 放子目錄時，紀錄只記檔名、寫在那個子目錄的 `logs/`，對不到 `project.yaml` 寫的路徑，每一項都是「沒有正式執行的紀錄」，無錯誤訊息 | 全部 | 找不到檔案，轉接器停，有錯誤訊息 |
-| L2 | 項目資料檔是 `ansible/vars/project.yaml`，檔名每個項目都一樣，最上層是 mapping | `components`、`links`、`groups[].label` | 有錯誤訊息 |
+| L2 | 項目資料檔是 `ansible/vars/project.yaml`，檔名每個項目都一樣，最上層是 mapping | `components`、`links`、`evidence`、`groups[].label` | 有錯誤訊息 |
 | L3 | playbook 只用 `lookup('ansible.builtin.file', …) \| from_yaml` 讀 `project.yaml` 再取要的節，不用 `vars_files` 或 `include_vars` 整份載入 | 不填；守 ansible 執行 | 整份載入時各節變成 play 變數，蓋掉同名變數，無錯誤訊息 |
 
 ## 二、inventory
@@ -124,9 +124,9 @@ filter_plugins = ./vendor/infra-kit/ansible-facts/filter_plugins
 
 | 代號 | 規定 | 填哪個欄位 | 違反時 |
 |---|---|---|---|
-| C1 | 欄位只有 `id`、`name`、`plan_name`、`type`、`hosts`、`version_from`、`verify`、`table`。`id`、`name`、`type`、`version_from` 必填，`id` 不重複 | `components[]` 的 `id`、`name`、`plan_name`、`type` | 有錯誤訊息 |
+| C1 | 欄位只有 `id`、`name`、`plan_name`、`type`、`hosts`、`version_from`、`verify`、`table`、`evidence`（E7）。`id`、`name`、`type`、`version_from` 必填，`id` 不重複 | `components[]` 的 `id`、`name`、`plan_name`、`type` | 有錯誤訊息 |
 | C2 | `type` 是 `application`、`container`、`library`、`operating-system`、`platform`、`framework` 之一 | `components[].type` | 有錯誤訊息 |
-| C3 | `table: false` 的元件不寫 `hosts`、`verify`、`plan_name`，`version_from` 要是鎖定處。其他元件 `hosts`、`verify` 必填 | `components[].in_table`、`versions` | 有錯誤訊息 |
+| C3 | `table: false` 的元件不寫 `hosts`、`verify`、`plan_name`、`evidence`，`version_from` 要是鎖定處。其他元件 `hosts`、`verify` 必填 | `components[].in_table`、`versions` | 有錯誤訊息 |
 | C4 | `hosts` 寫成 `group:<群組>`（多組用逗號接）或 `play:<playbook>`。`play:` 取那支 playbook 的 play 的 `hosts:` | `components[].instances[].host` | 寫法不認得、群組不在 inventory 或沒有主機：有錯誤訊息 |
 | C5 | `play:` 指到的 playbook 只有一個 play（`import_playbook` 不算），play 寫成 `- name: …` 開頭、下一層兩格縮排的 `  hosts: …`（`- hosts:` 開頭的寫法認不得），`hosts:` 是群組名用 `:` 或 `,` 接，不含運算式、`!`、`&`。主機由 `-e` 參數決定的 playbook 不能用 `play:`，改寫 `group:` | 同上 | 有錯誤訊息 |
 | C6 | `version_from` 是 `record`、一個鎖定處或鎖定處的清單 | `components[].versions`（鎖定處）、`instances[].versions`（`record`） | 有錯誤訊息 |
@@ -160,14 +160,29 @@ filter_plugins = ./vendor/infra-kit/ansible-facts/filter_plugins
 |---|---|---|---|
 | V1 | 要進報告的檢查寫成名稱以「驗證：」開頭的步驟，只有這種步驟會留紀錄 | `check` | 沒有紀錄：`check` 是 `null`，`problem` 寫「沒有正式執行的紀錄」 |
 | V2 | `components` 與 `links` 引用的步驟，在同一次執行的同一台主機只出現一次 | `check` | role 內的步驟名不帶 role 前綴，同名兩步分不出來：`check` 是 `null`，`problem` 寫原因 |
-| V3 | 驗證步驟的 `vars` 可寫四個鍵。`report_service`；`report_method`，`links` 引用的步驟必寫；`report_version`，從主機或容器讀到的版本，不寫鎖定的變數；`report_hosts`，這步適用哪些主機的名稱清單，`when:` 引用同一個變數 | `check.service`、`check.method`、`instances[].versions` | `links` 引用的步驟沒有 `report_method`：`problem`。代入失敗：紀錄寫 `report_error`，`problem`（連線的那筆 `check` 寫 `null`；元件的照記結果） |
-| V4 | `report_*` 不放密碼變數。紀錄照樣寫出，`no_log` 也一樣 | 不填 | 密碼寫進紀錄檔，無錯誤訊息 |
+| V3 | 驗證步驟的 `vars` 可寫六個鍵。`report_service`；`report_method`，`links` 引用的步驟必寫；`report_version`，從主機或容器讀到的版本，不寫鎖定的變數；`report_hosts`，這步適用哪些主機的名稱清單，`when:` 引用同一個變數；`report_command`，給人看的指令原文（含 `{{ }}` 的寫成 `!unsafe >-` 區塊，`\t` 照原文留著）；`report_output`，前面步驟 register 的 `stdout`，超過 200 行時只記前 200 行、末行註明截斷 | `check.service`、`check.method`、`instances[].versions`、`evidence[].command`、`evidence[].output` | `links` 引用的步驟沒有 `report_method`：`problem`。代入失敗：紀錄寫 `report_error`，`problem`（連線的那筆 `check` 寫 `null`；元件的照記結果） |
+| V4 | `report_*` 不放密碼變數。紀錄照樣寫出，`no_log` 也一樣。`report_output` 只給不含密碼的指令（`docker ps`、版本查詢），輸出會原文進驗收文件 | 不填 | 密碼寫進紀錄檔與驗收文件，無錯誤訊息 |
 | V5 | `ansible.cfg` 啟用本目錄的 callback（見「項目怎麼引用」）。紀錄寫在 `ansible/logs/results/<playbook>-<時間>.jsonl`，不進版控 | `check` | 沒啟用：沒有紀錄，同 V1 |
-| V6 | 紀錄格式由 callback 定，項目不改：每個驗證步驟一行 `{"type": "step", time, playbook, play, host, step, result, check, service?, method?, version?, report_hosts?, report_error?}`，執行結束一行 `{"type": "summary", time, playbook, check, hosts: {主機: {ok, failed, skipped, unreachable}}}` | — | jsonl 有一行不是 JSON：有錯誤訊息（結束碼 1）。其他不認得的行跳過 |
+| V6 | 紀錄格式由 callback 定，項目不改：每個驗證步驟一行 `{"type": "step", time, playbook, play, host, step, result, check, service?, method?, version?, command?, output?, report_hosts?, report_error?}`，執行結束一行 `{"type": "summary", time, playbook, check, hosts: {主機: {ok, failed, skipped, unreachable}}}` | — | jsonl 有一行不是 JSON：有錯誤訊息（結束碼 1）。其他不認得的行跳過 |
 | V7 | 轉接器只採正式執行：不是 `--check`、有總結行、總結沒有 unreachable。每個（playbook、主機）取最近一次正式執行；那次沒有這一步、主機在這步之前就失敗、只出現在更晚的預演、結果是 skipped，都寫 `null` 與 `problem`，不沿用更早的結果。`report_hosts` 不含這台時同樣（元件與連線都是） | `check.result`（ok → `pass`、failed → `fail`）、`check.time` | 不是違反，是規則 |
 | V8 | 有正式紀錄而 `components` 沒展開到的主機（例：用 `-e` 多裝了一台） | `problems[]` | 轉接器寫進 `problems` |
 
-## 七、參考項目改過的地方
+## 七、project.yaml：evidence
+
+驗收文件用主機上標準指令（例：`docker ps`）的輸出當舉證。`evidence` 一項是一個指令，每台主機一筆；元件可以指一項，轉接器拿那台的輸出對照元件的結果。
+
+| 代號 | 規定 | 填哪個欄位 | 違反時 |
+|---|---|---|---|
+| E1 | `evidence` 是清單，每項欄位只有 `id`、`title`、`hosts`、`playbook`、`step`，都是字串、都必填，`id` 不重複 | `evidence[]` 的 `id`、`title` | 有錯誤訊息 |
+| E2 | `hosts` 寫法同 C4、C5 | `evidence[].host` | 有錯誤訊息 |
+| E3 | `step` 規則同 C12：要在那支 playbook 或它 include、import 的檔（含 role 的 tasks）找得到；同一次執行的同一台只出現一次（V2） | `evidence[]` | 找不到：有錯誤訊息 |
+| E4 | `title` 可含 `{host}`，代入主機名 | `evidence[].title` | 不是違反，是規則 |
+| E5 | 那一步要帶 `report_command` 與 `report_output`（V3）。每台的取法同 V7：最近一次正式執行，skipped、`report_hosts` 不含這台、代入失敗都不採；`evidence` 那步與元件那步各取各的最近一次，不要求同一次 | `evidence[]` 的 `command`、`output`、`time` | 沒採到或紀錄沒有 `command`、`output` 的主機不輸出那筆，轉接器寫進 `problems`，點名 `id` 與主機 |
+| E6 | 順序照 `evidence` 清單，同一項內照 `hosts` 展開的順序。`project.yaml` 沒有 `evidence` 時不輸出這個鍵 | `evidence` 的順序 | 不是違反，是規則 |
+| E7 | `components[]` 可寫 `evidence: {id, line}`，兩個都是字串：`id` 是 `evidence` 裡的一項，`line` 是正規式，可含 `{version}`。含 `{version}` 的元件，`version_from` 是 `record` 或只有一個鎖定處 | 不填；給 E8 對照 | 有錯誤訊息 |
+| E8 | 對照：`check.result` 是 `pass` 的實例，同主機那筆 `evidence[id]` 的 `output` 要有一行含符合 `line` 的片段（逐行 `re.search`）。`{version}` 代入該實例的版本（`record` 取紀錄的版本，鎖定處取上游版本），代入前先跳脫。`check` 是 `null` 或 `fail` 的不對照 | `problems[]` | 找不到那筆、沒有版本可代入、沒有一行符合：轉接器寫進 `problems`，點名元件、主機、`id`、`line`。`line` 寫得太寬（例：只寫 `Up`）時對照永遠綠，無錯誤訊息 |
+
+## 八、參考項目改過的地方
 
 參考項目原本自己維護產生腳本，與本規格的差異如下。改用本目錄時照「改成」那欄改：
 
@@ -186,7 +201,7 @@ filter_plugins = ./vendor/infra-kit/ansible-facts/filter_plugins
 - **S1**：不改的代價是每個項目一份副本。連線展開同時決定防火牆放行與文件內容，兩邊用到不同版本時文件與實際放行不一致，無錯誤訊息
 - 其他規則照參考項目現行做法：它已照這些寫法在用，舉不出改的理由
 
-## 八、不在本規格的
+## 九、不在本規格的
 
 參考項目還有幾項檢查讀 ansible，屬於該項目自己的部署寫法，留在項目裡，轉接器不做：
 

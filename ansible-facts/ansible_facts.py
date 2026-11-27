@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """ansible 的轉接器：讀項目的 ansible/（inventory、vars/project.yaml、版本鎖定處、logs/results），寫出 部署事實.json
 
-規則見同目錄 README.md（L、I、G、C、N、V、S 各代號）。本檔只交事實：表格列怎麼排、版本怎麼接、用語，都是驗收文件那邊的事。
+規則見同目錄 README.md（L、I、G、C、N、V、E、S 各代號）。本檔只交事實：表格列怎麼排、版本怎麼接、用語，都是驗收文件那邊的事。
 
 用法（在項目根目錄，用跳板同版 ansible-core 帶的 Python 跑，它有 PyYAML 與 ansible-inventory）：
     mise x uv@0.13.9 -- uvx --from ansible-core==2.22.0 python ansible/vendor/infra-kit/ansible-facts/ansible_facts.py \\
@@ -384,7 +384,10 @@ RESULT = {'ok': 'pass', 'failed': 'fail'}
 
 # ── 轉接器本體 ──
 
-COMPONENT_KEYS = {'id', 'name', 'plan_name', 'type', 'hosts', 'version_from', 'verify', 'table'}
+COMPONENT_KEYS = {'id', 'name', 'plan_name', 'type', 'hosts', 'version_from', 'verify', 'table', 'evidence'}
+EVIDENCE_KEYS = ('id', 'title', 'hosts', 'playbook', 'step')
+COMPONENT_EVIDENCE_KEYS = {'id', 'line'}
+VERSION_FIELD = '{version}'
 LOCK_KEYS = {'id', 'file', 'var', 'parent', 'list', 'item', 'format', 'label'}
 TYPES = ('application', 'container', 'library', 'operating-system', 'platform', 'framework')
 HOST_KINDS = ('group', 'play')
@@ -581,7 +584,7 @@ class Facts:
             if table not in (True, False):
                 self.err('C3', '%s：table 只能寫 false' % where)
             if table is False:
-                for k in ('hosts', 'verify', 'plan_name'):
+                for k in ('hosts', 'verify', 'plan_name', 'evidence'):
                     if k in c:
                         self.err('C3', '%s：table: false 不進軟體表，不寫 %s' % (where, k))
                 if c.get('version_from') == RECORD:
@@ -729,6 +732,68 @@ class Facts:
             out.append((link, ports, checks))
         return out
 
+    # ── E1–E3：evidence ──
+    def build_evidence(self):
+        """[(原始 dict, 主機清單)]；project.yaml 沒有 evidence 時回 None"""
+        if 'evidence' not in self.doc:
+            return None
+        raw = self.doc['evidence']
+        if not isinstance(raw, list):
+            self.err('E1', 'project.yaml 的 evidence 要是清單')
+            return []
+        out, ids = [], set()
+        for i, e in enumerate(raw):
+            if not isinstance(e, dict):
+                self.err('E1', 'evidence 第 %d 項不是 mapping' % (i + 1))
+                continue
+            where = 'evidence %s' % (e.get('id') or '第 %d 項' % (i + 1))
+            bad = False
+            extra = set(e) - set(EVIDENCE_KEYS)
+            if extra:
+                self.err('E1', '%s：不認得的欄位 %s' % (where, '、'.join(sorted(extra))))
+                bad = True
+            for k in EVIDENCE_KEYS:
+                if not isinstance(e.get(k), str) or not e[k]:
+                    self.err('E1', '%s：缺 %s（要是字串）' % (where, k))
+                    bad = True
+            if isinstance(e.get('id'), str):
+                if e['id'] in ids:
+                    self.err('E1', '%s：id 重複' % where)
+                    bad = True
+                ids.add(e['id'])
+            if bad:
+                continue
+            hosts = self.hosts_spec(e['hosts'], 'E2', where)
+            if not (self.d / e['playbook']).is_file():
+                self.err('E3', '%s：playbook %s 不存在' % (where, e['playbook']))
+            elif not step_found(e['step'], step_names(e['playbook'], self.d), allow_vars=True):
+                self.err('E3', '%s：%s（含它 include、import 的檔與 role）找不到步驟「%s」（改名了？project.yaml 照新名稱改）' % (
+                    where, e['playbook'], e['step']))
+            out.append((e, hosts))
+        return out
+
+    def component_evidence_errors(self, comps, evidence):
+        """E7：components[].evidence 寫 {id, line}，id 在 evidence 裡，line 是正規式"""
+        ids = {e['id'] for e, _ in evidence or []}
+        for c, item, _ in comps:
+            if 'evidence' not in c:
+                continue
+            where = 'component %s' % c['id']
+            ev = c['evidence']
+            if not isinstance(ev, dict) or set(ev) != COMPONENT_EVIDENCE_KEYS or not all(
+                    isinstance(v, str) and v for v in ev.values()):
+                self.err('E7', '%s：evidence 要寫 {id, line}，兩個都是字串' % where)
+                continue
+            if ev['id'] not in ids:
+                self.err('E7', '%s：evidence 的 id %s 不在 project.yaml 的 evidence 裡' % (where, ev['id']))
+            try:
+                re.compile(ev['line'].replace(VERSION_FIELD, re.escape('0.0.0')))
+            except re.error as e:
+                self.err('E7', '%s：evidence 的 line「%s」不是正規式（%s）' % (where, ev['line'], e))
+            if VERSION_FIELD in ev['line'] and c['version_from'] != RECORD and len(item.get('versions', [])) > 1:
+                self.err('E7', '%s：evidence 的 line 有 {version}，元件卻有 %d 個鎖定處，不知道代哪一個' % (
+                    where, len(item['versions'])))
+
     # I7
     def check_ips(self):
         ips = set(self.hosts.values())
@@ -761,6 +826,8 @@ class Facts:
         self.load_ports()
         comps = self.build_components()
         links = self.build_links()
+        evidence = self.build_evidence()
+        self.component_evidence_errors(comps, evidence)
         self.check_ips()
         if self.errors:
             return None
@@ -804,6 +871,18 @@ class Facts:
                 if vpb == pb and host not in hosts and any(r['host'] == host and r['step'] == step for r in run['steps']):
                     problems.append({'message': '%s 在 %s 有「%s」的正式紀錄，project.yaml 的 components 卻沒展開到這台' % (host, pb, step)})
 
+        out_evidence = None
+        if evidence is not None:
+            out_evidence = []
+            for e, hosts in evidence:
+                for h in hosts:
+                    entry, problem = self.evidence_entry(rec, e, h)
+                    if problem:
+                        problems.append({'message': 'evidence %s 的 %s：%s，部署事實.json 沒有這筆' % (e['id'], h, problem)})
+                    else:
+                        out_evidence.append(entry)
+            problems += self.compare_evidence(comps, out_evidence)
+
         groups = []
         for name, members in self.groups.items():
             if name in GROUPS_SKIP or not members:
@@ -813,15 +892,66 @@ class Facts:
                 g['label'] = self.label(name)
             g['hosts'] = members
             groups.append(g)
-        return {
+        doc = {
             'format_version': FORMAT_VERSION,
             'generated_at': datetime.now().astimezone().isoformat(timespec='seconds'),
             'hosts': [{'name': h, 'ip': ip} for h, ip in self.hosts.items()],
             'groups': groups,
             'components': components,
             'links': out_links,
-            'problems': problems,
         }
+        if out_evidence is not None:
+            doc['evidence'] = out_evidence
+        doc['problems'] = problems
+        return doc
+
+    @staticmethod
+    def evidence_entry(rec, e, host):
+        """E5：一個（evidence、主機）的那筆，採用同 V7。(entry, None) 或 (None, problem)"""
+        r, problem = rec.latest(e['playbook'], host, e['step'])
+        if problem is None:
+            if r.get('report_error'):
+                problem = 'report_* 代入失敗（%s）' % r['time']
+            elif 'report_hosts' in r and host not in r['report_hosts']:
+                problem = 'report_hosts %s 不含這台（%s）' % (r['report_hosts'], r['time'])
+            elif r['result'] not in RESULT:
+                problem = '最近一次正式執行是 %s（%s）' % (r['result'], r['time'])
+            elif 'command' not in r or 'output' not in r:
+                problem = '紀錄沒有 %s（%s），步驟要寫 report_command 與 report_output' % (
+                    '、'.join(k for k in ('command', 'output') if k not in r), r['time'])
+        if problem:
+            return None, problem
+        return {'id': e['id'], 'title': e['title'].replace('{host}', host), 'host': host,
+                'command': r['command'], 'output': r['output'], 'time': r['time']}, None
+
+    @staticmethod
+    def compare_evidence(comps, entries):
+        """E8：check 是 pass 的實例，同主機那筆 evidence 的 output 要有一行符合 line。回傳 problems"""
+        by_key = {(x['id'], x['host']): x for x in entries}
+        out = []
+        for c, item, _ in comps:
+            ev = c.get('evidence')
+            if not ev:
+                continue
+            for inst in item.get('instances', []):
+                if not inst['check'] or inst['check']['result'] != 'pass':
+                    continue
+                host = inst['host']
+                where = 'component %s 的 %s（evidence %s，line「%s」）' % (c['id'], host, ev['id'], ev['line'])
+                pattern = ev['line']
+                if VERSION_FIELD in pattern:
+                    versions = inst.get('versions') or item.get('versions') or []
+                    if len(versions) != 1:
+                        out.append({'message': '%s：沒有版本可代入 {version}，對照不了' % where})
+                        continue
+                    # 版本代入前跳脫：v2026.11.26.2 的 . 不跳脫會配到任何字
+                    pattern = pattern.replace(VERSION_FIELD, re.escape(versions[0]['version']))
+                entry = by_key.get((ev['id'], host))
+                if entry is None:
+                    out.append({'message': '%s：元件判 pass，evidence 沒有這台的那筆，對照不了' % where})
+                elif not any(re.search(pattern, line) for line in entry['output'].splitlines()):
+                    out.append({'message': '%s：元件判 pass，指令輸出卻沒有一行符合（%s）' % (where, entry['time'])})
+        return out
 
     @staticmethod
     def component_instance(rec, c, host, pb, step):

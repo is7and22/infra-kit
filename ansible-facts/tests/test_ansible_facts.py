@@ -119,6 +119,19 @@ CASES = [
     ('C3', 'table: false 用 record', replace(P, "version_from: {id: base-helper, file: roles/base/defaults/main.yml, list: base_debs, item: base-helper, var: version, format: deb}", 'version_from: record'), 'C3'),
     ('N6', 'service 的變數找不到', replace(P, 'service: 網頁 {app_port}', 'service: 網頁 {nope_port}'), 'nope_port'),
     ('N7', '同一服務同一範圍列兩次', replace(P, '        step: 驗證：從庫在複寫', DUP_VERIFY), '列了兩次'),
+    ('E1', 'evidence 缺 title', replace(P, '    title: 核心版本\n', ''), '缺 title'),
+    ('E1', 'evidence id 重複', replace(P, '  - id: uname\n', '  - id: docker_ps\n'), 'id 重複'),
+    ('E1', 'evidence 不認得的欄位', replace(P, '    title: 核心版本\n', '    title: 核心版本\n    note: x\n'), '不認得的欄位 note'),
+    ('E1', 'evidence 不是清單', replace(P, 'evidence:\n  - id: docker_ps\n', 'evidence: docker_ps\nx:\n  - id: docker_ps\n'), '要是清單'),
+    ('E2', 'evidence 的群組不在 inventory', replace(P, 'hosts: group:web,app\n    playbook: check-hosts.yml', 'hosts: group:nope\n    playbook: check-hosts.yml'), '沒有群組 nope'),
+    ('E3', 'evidence 的步驟找不到', replace(P, 'step: 驗證：核心版本', 'step: 驗證：不存在'), '找不到步驟「驗證：不存在」'),
+    ('E3', 'evidence 的 playbook 不存在', replace(P, 'playbook: check-hosts.yml\n    step: 驗證：核心版本', 'playbook: nope.yml\n    step: 驗證：核心版本'), 'nope.yml 不存在'),
+    ('E7', '元件 evidence 的 id 不在 evidence', replace(P, 'evidence: {id: docker_ps,', 'evidence: {id: nope,'), 'id nope 不在'),
+    ('E7', '元件 evidence 缺 line', replace(P, "evidence: {id: docker_ps, line: 'example/app:{version}\\s+Up '}", 'evidence: {id: docker_ps}'), '要寫 {id, line}'),
+    ('E7', '元件 evidence 的 line 不是正規式', replace(P, "line: 'example/app:{version}", "line: 'example/app:({version}"), '不是正規式'),
+    ('E7', '{version} 而元件有兩個鎖定處', replace(P, "    verify: {playbook: install-store.yml, step: 驗證：版本與清單一致}\n",
+                                         "    verify: {playbook: install-store.yml, step: 驗證：版本與清單一致}\n    evidence: {id: uname, line: '{version}'}\n"), '2 個鎖定處'),
+    ('C3', 'table: false 寫了 evidence', replace(P, '    table: false\n', "    table: false\n    evidence: {id: uname, line: x}\n"), '不寫 evidence'),
 ]
 
 
@@ -193,8 +206,29 @@ class AdapterOkTest(unittest.TestCase):
 
     def test_extra_host_in_problems(self):
         # V8：store-2 用 -e 多裝了基礎套件，components 沒展開到
-        self.assertEqual(len(self.doc['problems']), 1)
-        self.assertIn('store-2', self.doc['problems'][0]['message'])
+        v8 = [p['message'] for p in self.doc['problems'] if '沒展開到這台' in p['message']]
+        self.assertEqual(len(v8), 1)
+        self.assertIn('store-2', v8[0])
+
+    def test_problems_listed(self):
+        # V8 一則；app-2 判 pass 而紀錄沒有版本，{version} 代不進去，對照不了一則
+        msgs = [p['message'] for p in self.doc['problems']]
+        self.assertEqual(len(msgs), 2, msgs)
+        self.assertIn('component app 的 app-2（evidence docker_ps', msgs[1])
+        self.assertIn('沒有版本可代入', msgs[1])
+
+    def test_evidence(self):
+        # E5、E6：evidence 清單順序、同一項內照 hosts 順序；title 代入 {host}；
+        # 元件那步在 deploy-app.yml、evidence 那步在 check-hosts.yml，各取各的最近一次正式執行
+        ev = self.doc['evidence']
+        self.assertEqual([(e['id'], e['host']) for e in ev],
+                         [('docker_ps', 'app-1'), ('docker_ps', 'app-2'), ('uname', 'web-1'), ('uname', 'app-1'), ('uname', 'app-2')])
+        self.assertEqual(ev[0]['title'], 'app-1 容器狀態檢查')
+        self.assertEqual(ev[2]['title'], '核心版本')
+        self.assertEqual(list(ev[0]), ['id', 'title', 'host', 'command', 'output', 'time'])
+        self.assertEqual(ev[0]['command'], r"docker ps --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}'")
+        self.assertIn('example/app:v1.2.3\tUp 2 hours', ev[0]['output'])
+        self.assertEqual(ev[0]['time'], '2026-11-22T10:00:00+08:00')
 
 
 class AdapterRecordProblemsTest(unittest.TestCase):
@@ -236,6 +270,110 @@ class AdapterRecordProblemsTest(unittest.TestCase):
         rep = next(l for l in doc['links'] if l['id'] == 'store-replication')['checks'][0]['instances'][0]
         self.assertIsNone(rep['check'])
         self.assertIn('沒有 report_method', rep['problem'])
+
+
+def edit_results(edit, extra=None):
+    """複製假紀錄，edit(check-hosts 那次的紀錄清單) 原地改；extra 是 {檔名: 紀錄清單} 另加的執行"""
+    tmp = Path(tempfile.mkdtemp(dir=_TMP.name))
+    shutil.copytree(RESULTS, tmp, dirs_exist_ok=True)
+    f = tmp / 'check-hosts-20261122-100000.jsonl'
+    lines = [json.loads(x) for x in f.read_text(encoding='utf-8').splitlines()]
+    if edit:
+        edit(lines)
+    for name, recs in [(f.name, lines)] + list((extra or {}).items()):
+        (tmp / name).write_text(''.join(json.dumps(x, ensure_ascii=False) + '\n' for x in recs), encoding='utf-8')
+    return tmp
+
+
+def ps_rec(lines, host):
+    return next(x for x in lines if x.get('host') == host and x.get('step') == '驗證：容器清單')
+
+
+class AdapterEvidenceTest(unittest.TestCase):
+    """E5、E8：evidence 的採用與元件對照"""
+
+    def app1_compare(self, results):
+        rc, err, doc, _ = run(results=results)
+        self.assertEqual(rc, 0, err)
+        return doc, [p['message'] for p in doc['problems'] if 'component app 的 app-1' in p['message']]
+
+    def with_app1_line(self, line):
+        def edit(lines):
+            r = ps_rec(lines, 'app-1')
+            r['output'] = r['output'].replace('app\texample/app:v1.2.3\tUp 2 hours', line)
+        return edit_results(edit)
+
+    def test_compare_red_and_green(self):
+        # 元件 pass、版本 v1.2.3：那一行寫成 v1.2.4 或 Exited 要點名元件與主機；改回 v1.2.3 且 Up 時沒有
+        for line in ('app\texample/app:v1.2.4\tUp 2 hours', 'app\texample/app:v1.2.3\tExited (1) 2 hours ago',
+                     # {version} 沒跳脫時 . 配到任何字，這行會被當成符合
+                     'app\texample/app:v1x2x3\tUp 2 hours'):
+            with self.subTest(line=line):
+                _, msgs = self.app1_compare(self.with_app1_line(line))
+                self.assertEqual(len(msgs), 1, msgs)
+                self.assertIn('evidence docker_ps', msgs[0])
+                self.assertIn(r'line「example/app:{version}\s+Up 」', msgs[0])
+                self.assertIn('指令輸出卻沒有一行符合', msgs[0])
+        _, msgs = self.app1_compare(self.with_app1_line('app\texample/app:v1.2.3\tUp 5 minutes'))
+        self.assertEqual(msgs, [])
+
+    def test_compare_skips_fail_and_null(self):
+        # check 是 fail 的實例不對照：元件那步改 failed，輸出不符也不點名
+        tmp = self.with_app1_line('app\texample/app:v1.2.4\tUp 2 hours')
+        f = tmp / 'deploy-app-20261121-100000.jsonl'
+        f.write_text(f.read_text(encoding='utf-8').replace('"host": "app-1", "step": "驗證：應用 容器在跑", "result": "ok"',
+                                                           '"host": "app-1", "step": "驗證：應用 容器在跑", "result": "failed"'), encoding='utf-8')
+        doc, msgs = self.app1_compare(tmp)
+        self.assertEqual(next(i for c in doc['components'] if c['id'] == 'app' for i in c['instances'] if i['host'] == 'app-1')['check']['result'], 'fail')
+        self.assertEqual(msgs, [])
+
+    def test_check_run_output_not_adopted(self):
+        # V7：較晚的 --check 帶了 output，不採，用較早的正式執行
+        later = [dict(x, time='2026-11-23T10:00:00+08:00', check=True) for x in json.loads('[%s]' % ','.join(
+            (RESULTS / 'check-hosts-20261122-100000.jsonl').read_text(encoding='utf-8').splitlines()))]
+        for x in later:
+            if x.get('output'):
+                x['output'] = 'CHECK MODE OUTPUT'
+        rc, err, doc, _ = run(results=edit_results(None, {'check-hosts-20261123-100000.jsonl': later}))
+        self.assertEqual(rc, 0, err)
+        self.assertTrue(all('CHECK MODE' not in e['output'] for e in doc['evidence']))
+        self.assertEqual(len(doc['evidence']), 5)
+
+    def test_only_check_run_not_adopted(self):
+        # 只有 --check 的執行：evidence 沒有那筆，寫 problems；元件 pass 的那台對照不了也點名
+        def edit(lines):
+            for x in lines:
+                x['check'] = True
+        rc, err, doc, _ = run(results=edit_results(edit))
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(doc['evidence'], [])
+        msgs = [p['message'] for p in doc['problems']]
+        self.assertTrue(any(m.startswith('evidence docker_ps 的 app-1：沒有正式執行的紀錄') for m in msgs), msgs)
+        self.assertTrue(any('component app 的 app-1' in m and 'evidence 沒有這台的那筆' in m for m in msgs), msgs)
+
+    def test_record_without_command_or_output(self):
+        def edit(lines):
+            del ps_rec(lines, 'app-2')['output']
+            ps_rec(lines, 'app-1')['result'] = 'skipped'
+        rc, err, doc, _ = run(results=edit_results(edit))
+        self.assertEqual(rc, 0, err)
+        self.assertEqual([(e['id'], e['host']) for e in doc['evidence'] if e['id'] == 'docker_ps'], [])
+        msgs = [p['message'] for p in doc['problems']]
+        self.assertTrue(any('evidence docker_ps 的 app-2：紀錄沒有 output' in m for m in msgs), msgs)
+        self.assertTrue(any('evidence docker_ps 的 app-1：最近一次正式執行是 skipped' in m for m in msgs), msgs)
+
+    def test_no_evidence_section(self):
+        # project.yaml 沒有 evidence：不輸出這個鍵
+        def mutate(d):
+            f = d / P
+            text = f.read_text(encoding='utf-8')
+            text = text[:text.index('# 驗收文件的指令輸出舉證')] + text[text.index('group_labels:'):]
+            f.write_text(text.replace("    evidence: {id: docker_ps, line: 'example/app:{version}\\s+Up '}\n", ''), encoding='utf-8')
+        rc, err, doc, _ = run(mutate)
+        self.assertEqual(rc, 0, err)
+        self.assertNotIn('evidence', doc)
+        self.assertEqual(list(doc)[-1], 'problems')
+        self.assertEqual(len(doc['problems']), 1)
 
 
 class AdapterOtherRulesTest(unittest.TestCase):
@@ -280,7 +418,7 @@ class AdapterErrorTest(unittest.TestCase):
         rules = set()
         for line in readme.splitlines():
             cells = [c.strip() for c in line.strip('|').split('|')]
-            if len(cells) >= 3 and cells[0][:1] in 'LIGCN' and cells[0][1:].isdigit() and '有錯誤訊息' in cells[-1]:
+            if len(cells) >= 3 and cells[0][:1] in 'LIGCNE' and cells[0][1:].isdigit() and '有錯誤訊息' in cells[-1]:
                 rules.add(cells[0])
         self.assertTrue(rules)
         self.assertEqual(rules - {c[0] for c in CASES} - OTHER_RULES, set())
