@@ -1,0 +1,3 @@
+- name: 驗證：版本與清單一致
+  ansible.builtin.debug:
+    msg: ok

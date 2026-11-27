@@ -1,0 +1,8 @@
+- name: 驗證：映像 Id 與清單一致
+  ansible.builtin.debug:
+    msg: ok
+- name: 驗證：本機服務回 200
+  vars:
+    report_method: 本機連 127.0.0.1:8080 回 200
+  ansible.builtin.debug:
+    msg: ok

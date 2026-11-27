@@ -1,0 +1,6 @@
+- name: 部署應用
+  hosts: app
+  vars:
+    svc_label: 應用
+  roles:
+    - app

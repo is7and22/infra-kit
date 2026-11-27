@@ -1,0 +1,5 @@
+{"type": "step", "time": "2026-11-20T10:00:00+08:00", "playbook": "install-base.yml", "play": "p", "host": "web-1", "step": "驗證：版本與清單一致", "result": "ok", "check": false}
+{"type": "step", "time": "2026-11-20T10:00:00+08:00", "playbook": "install-base.yml", "play": "p", "host": "app-1", "step": "驗證：版本與清單一致", "result": "ok", "check": false}
+{"type": "step", "time": "2026-11-20T10:00:00+08:00", "playbook": "install-base.yml", "play": "p", "host": "store-2", "step": "驗證：版本與清單一致", "result": "ok", "check": false}
+{"type": "step", "time": "2026-11-20T10:00:00+08:00", "playbook": "install-base.yml", "play": "p", "host": "mon-1", "step": "驗證：代理在跑", "result": "ok", "check": false}
+{"type": "summary", "time": "2026-11-20T10:05:00+08:00", "playbook": "install-base.yml", "check": false, "hosts": {"web-1": {"ok": 1, "failed": 0, "skipped": 0, "unreachable": 0}, "app-1": {"ok": 1, "failed": 0, "skipped": 0, "unreachable": 0}, "app-2": {"ok": 1, "failed": 1, "skipped": 0, "unreachable": 0}, "store-2": {"ok": 1, "failed": 0, "skipped": 0, "unreachable": 0}, "mon-1": {"ok": 1, "failed": 0, "skipped": 0, "unreachable": 0}}}

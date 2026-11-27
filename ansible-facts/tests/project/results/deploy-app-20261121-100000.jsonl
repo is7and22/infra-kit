@@ -1,0 +1,5 @@
+{"type": "step", "time": "2026-11-21T10:00:00+08:00", "playbook": "deploy-app.yml", "play": "p", "host": "app-1", "step": "驗證：應用 容器在跑", "result": "ok", "check": false, "version": "v1.2.3"}
+{"type": "step", "time": "2026-11-21T10:00:00+08:00", "playbook": "deploy-app.yml", "play": "p", "host": "app-2", "step": "驗證：應用 容器在跑", "result": "ok", "check": false}
+{"type": "step", "time": "2026-11-21T10:01:00+08:00", "playbook": "deploy-app.yml", "play": "p", "host": "app-1", "step": "驗證：連得到儲存", "result": "ok", "check": false, "service": "儲存 / 7000", "method": "連 192.0.2.31:7000 回應正常"}
+{"type": "step", "time": "2026-11-21T10:01:00+08:00", "playbook": "deploy-app.yml", "play": "p", "host": "app-2", "step": "驗證：連得到儲存", "result": "failed", "check": false, "service": "儲存 / 7000", "method": "連 192.0.2.31:7000 回應正常"}
+{"type": "summary", "time": "2026-11-21T10:05:00+08:00", "playbook": "deploy-app.yml", "check": false, "hosts": {"app-1": {"ok": 1, "failed": 0, "skipped": 0, "unreachable": 0}, "app-2": {"ok": 1, "failed": 0, "skipped": 0, "unreachable": 0}}}

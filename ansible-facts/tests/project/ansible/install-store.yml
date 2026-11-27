@@ -1,0 +1,17 @@
+- name: 裝儲存引擎
+  hosts: store
+  vars:
+    ufw_writer: install-store.yml
+    store_pkgs:
+      store-engine: 18.6-0ubuntu0.1
+      store-ext: 0.8.1-2
+  tasks:
+    - ansible.builtin.include_tasks: tasks/ufw.yml
+    - name: 驗證：版本與清單一致
+      ansible.builtin.debug:
+        msg: ok
+    - name: 驗證：從庫在複寫
+      vars:
+        report_method: 主庫看得到從庫在複寫（port 7000）
+      ansible.builtin.debug:
+        msg: ok

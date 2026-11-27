@@ -2,13 +2,48 @@
 
 驗收文件的軟體表與連線表，由一份與部署工具無關的 `部署事實.json` 組出來（格式由驗收文件 repo 的 `schemas/部署事實.schema.json` 定）。本目錄是 ansible 的轉接器：讀項目的 inventory、版本鎖定處、驗證紀錄與 `project.yaml`，寫出 `部署事實.json`。
 
-本檔是轉接器的規格：項目的 ansible 要照什麼結構寫，轉接器才讀得出來。實作與它的檢查是後續的事，本目錄目前只有本檔。
+本檔是轉接器的規格：項目的 ansible 要照什麼結構寫，轉接器才讀得出來。
 
-| 檔（後續提供） | 做什麼 | 誰用 |
+| 檔 | 做什麼 | 誰用 |
 |---|---|---|
 | `callback_plugins/verify_records.py` | 把驗證步驟寫成紀錄（V5、V6） | 每次執行 playbook |
 | `filter_plugins/connection_links.py` | `links` 展開成 ufw 規則、欄位檢查、埠代入 | 負責放行的 playbook（N4）；轉接器 |
-| 轉接器 | 讀本檔規定的位置，寫出 `部署事實.json` | 項目產驗收文件前跑 |
+| `ansible_facts.py` | 轉接器：讀本檔規定的位置，寫出 `部署事實.json` | 項目產驗收文件前跑 |
+| `tests/` | 上面三支的測試，假項目在 `tests/project/` | 本 repo |
+
+## 執行環境
+
+轉接器在使用者的 Mac 上跑（項目的 pre-commit 會呼叫），不連跳板與任何主機。它要 PyYAML 與 `ansible-inventory`，用跳板同版的 ansible-core 帶的 Python 跑，兩樣都有，不另裝：
+
+```sh
+# 在項目根目錄
+mise x uv@0.13.9 -- uvx --from ansible-core==2.22.0 python ansible/vendor/infra-kit/ansible-facts/ansible_facts.py \
+    --ansible-dir ansible -o 部署事實.json
+```
+
+- ansible-core 的版本要與執行 playbook 的跳板相同（目前 2.22.0）：inventory 由 `ansible-inventory --list` 解析，版本不同時群組與變數的疊法可能不同
+- 這個 Python 是 3.12 以上；Mac 的系統 python3（3.9）沒有 PyYAML，不能直接跑
+- `ansible-inventory` 用同一個 Python 環境的那支；環境變數 `ANSIBLE_INVENTORY_CMD`（空白分隔）可換
+- `--results` 換驗證紀錄的目錄，預設 `<ansible-dir>/logs/results`。紀錄不進版控，另開的 worktree 沒有紀錄：每一項都寫 `null` 與「沒有正式執行的紀錄」，轉接器在 stderr 提醒，結束碼照樣是 0
+
+| 結束碼 | 意思 |
+|---|---|
+| 0 | 寫出 `部署事實.json`。挑不到結果的寫在 `problem` 與 `problems`，由讀的一方決定怎麼處理 |
+| 1 | 違反有錯誤訊息的規則，每項一行「錯：<代號> <哪裡>：<說明>」，不寫 json |
+| 2 | 參數或環境錯（`--ansible-dir` 不是目錄、找不到 `ansible-inventory`） |
+
+## 測試
+
+```sh
+# 在本 repo 根目錄
+mise x uv@0.13.9 -- uvx --from ansible-core==2.22.0 --with jsonschema==4.26.0 \
+    python -m unittest discover -s ansible-facts/tests -t ansible-facts/tests
+```
+
+- `test_ansible_facts.py`：假項目照規則寫的輸出、紀錄挑不到結果的情形，與每條有錯誤訊息的規則一份會紅的變體（`CASES`；另一條測試對照本檔的規則表，漏寫就紅）
+- 輸出用 `tests/acceptance-docs/` 的 `check_facts.py` 與 schema 驗。那是驗收文件 repo 的複本，來源與更新方式見那個目錄的 README
+- `test_verify_records.py`：對 localhost 真的跑 `ansible-playbook`，`tests/callback/ansible.cfg` 照下一節的寫法啟用 callback
+- 假項目只用保留位址（192.0.2.0/24、198.51.100.0/24）與假主機名
 
 整條路：項目照本檔寫 ansible → 跑 playbook，callback 留下驗證紀錄 → 轉接器讀 ansible 與紀錄，寫 `部署事實.json` → 驗收文件 repo 讀它組表。
 
@@ -131,11 +166,11 @@ filter_plugins = ./vendor/infra-kit/ansible-facts/filter_plugins
 | V7 | 轉接器只採正式執行：不是 `--check`、有總結行、總結沒有 unreachable。每個（playbook、主機）取最近一次正式執行；那次沒有這一步、主機在這步之前就失敗、只出現在更晚的預演、結果是 skipped，都寫 `null` 與 `problem`，不沿用更早的結果。`report_hosts` 不含這台時同樣 | `check.result`（ok → `pass`、failed → `fail`）、`check.time` | 不是違反，是規則 |
 | V8 | 有正式紀錄而 `components` 沒展開到的主機（例：用 `-e` 多裝了一台） | `problems[]` | 轉接器寫進 `problems` |
 
-## 七、參考項目目前不符合的地方
+## 七、參考項目改過的地方
 
-已有一個項目照這套寫法在用，產生腳本由項目自己維護。它與本規格的差異：
+參考項目原本自己維護產生腳本，與本規格的差異如下。改用本目錄時照「改成」那欄改：
 
-| 規則 | 現在 | 要改成 |
+| 規則 | 原本 | 改成 |
 |---|---|---|
 | I1 | inventory 來源與順序寫在項目的產生腳本裡，`project.yaml` 沒有 `inventory` | `project.yaml` 加 `inventory`，照現在腳本裡的順序列 |
 | I5 | 資料庫的主庫、從庫、快取主機由資料庫 playbook 的運算式從資料庫群組推算（第一台、其餘那台），不是寫在 inventory | inventory 加三個角色群組；資料庫 playbook 改用 `groups['<角色群組>']`；`components` 與 `links` 的 `db:<角色>` 改成 `group:<角色群組>`，`group_labels` 的鍵跟著改。主從切換改 inventory 的群組成員 |

@@ -1,0 +1,111 @@
+# 假項目的項目資料檔（ansible-facts 的測試用）
+inventory:
+  - inventory/shared
+  - inventory/prod
+
+metadata:
+  client: 示範機關
+
+components:
+  - id: base
+    name: 基礎套件
+    type: application
+    hosts: group:web,app
+    version_from: {id: base, file: roles/base/defaults/main.yml, list: base_debs, item: base-engine, var: version, format: deb}
+    verify: {playbook: install-base.yml, step: 驗證：版本與清單一致}
+
+  - id: base-helper
+    name: 輔助套件
+    type: library
+    table: false
+    version_from: {id: base-helper, file: roles/base/defaults/main.yml, list: base_debs, item: base-helper, var: version, format: deb}
+
+  - id: store
+    name: 儲存引擎
+    plan_name: 儲存引擎（資料）
+    type: application
+    hosts: group:store_primary
+    version_from:
+      - {id: store-engine, file: install-store.yml, parent: store_pkgs, var: store-engine, format: deb}
+      - {id: store-ext, file: install-store.yml, parent: store_pkgs, var: store-ext, format: deb, label: 外掛}
+    verify: {playbook: install-store.yml, step: 驗證：版本與清單一致}
+
+  - id: web
+    name: 網頁
+    type: container
+    hosts: play:install-web.yml
+    version_from: {id: web, file: install-web.yml, var: web_image, format: image}
+    verify: {playbook: install-web.yml, step: 驗證：映像 Id 與清單一致}
+
+  - id: monitor-agent
+    name: 監控代理
+    type: application
+    hosts: group:monitor
+    version_from: {id: agent, file: inventory/shared/group_vars/agent.yml, var: agent_version, format: plain}
+    verify: {playbook: install-base.yml, step: 驗證：代理在跑}
+
+  - id: app
+    name: 應用程式
+    type: container
+    hosts: group:app
+    version_from: record
+    verify: {playbook: deploy-app.yml, step: 驗證：應用 容器在跑}
+
+group_labels:
+  any: 使用者端
+  web: 網頁主機
+  app: 應用主機
+  store: 儲存主機
+  store_primary: 儲存主機（主）
+  monitor: 監控主機
+
+links:
+  - id: users-web
+    from: any
+    to: web
+    port: web_port
+    protocol: tcp
+    purpose: 使用者連網站
+    firewall: install-web.yml
+    ufw_comment: "web {host}"
+
+  - id: app-store
+    from: app
+    to: store_primary
+    port: store_port
+    protocol: tcp
+    purpose: 應用連儲存
+    firewall: install-store.yml
+    ufw_comment: "store {ip}"
+    verify:
+      - service: 應用 → 儲存 {store_port}
+        hosts: group:app
+        playbook: deploy-app.yml
+        step: 驗證：連得到儲存
+        note: 從應用容器連儲存
+
+  - id: store-replication
+    from: store
+    to: store
+    port: store_port
+    protocol: tcp
+    purpose: 儲存主機之間的複寫
+    firewall: install-store.yml
+    ufw_comment: "store {ip}"
+    verify:
+      - service: 儲存 {store_port} 主 → 從
+        hosts: group:store_primary
+        playbook: install-store.yml
+        step: 驗證：從庫在複寫
+
+  - id: web-local
+    from: web
+    to: self
+    port: app_port
+    protocol: tcp
+    purpose: 網頁本機服務
+    verify:
+      - service: 網頁 {app_port}
+        hosts: play:install-web.yml
+        playbook: install-web.yml
+        step: 驗證：本機服務回 200

@@ -1,0 +1,12 @@
+# verify-records-test.yml 用的 role：role 內的步驟，ansible 的 task 名稱會帶「verify_role : 」前綴，
+# callback 要照步驟本身的名稱比對與記錄
+- name: 驗證：role 內的步驟
+  ansible.builtin.debug:
+    msg: ok
+
+# 迴圈的驗證步驟只記一筆
+- name: 驗證：role 內的迴圈
+  ansible.builtin.assert:
+    that: item > 0
+    quiet: true
+  loop: [1, 2]

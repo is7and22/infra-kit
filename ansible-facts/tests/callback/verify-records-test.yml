@@ -1,0 +1,71 @@
+# test_verify_records.py 用的 playbook：對 localhost 跑四種「驗證：」步驟與一個不記的步驟
+# 只對 localhost 跑
+- name: verify_records 測試
+  hosts: localhost
+  gather_facts: false
+  vars:
+    zot_port: "5000"
+    # 假密碼：整個紀錄目錄都不該出現這串
+    fake_secret: FAKE-SECRET-7f3a91c2
+    this_host: localhost
+    other_host: db99
+  tasks:
+    - name: 驗證：成功
+      vars:
+        report_service: "Zot / {{ zot_port }}"
+        report_method: "測試方式文字"
+        # 版本取自前面步驟讀到的值（這裡用變數代替），紀錄裡是代入後的文字
+        report_version: "{{ zot_port }}.0.1"
+      # 沒有 no_log 的步驟輸出也帶假密碼（模擬忘了加 no_log）：callback 不記輸出，所以紀錄裡也不能有
+      ansible.builtin.debug:
+        msg: "ok {{ fake_secret }}"
+
+    - name: 驗證：失敗
+      ansible.builtin.fail:
+        msg: 故意失敗
+      ignore_errors: true
+
+    - name: 驗證：跳過
+      ansible.builtin.debug:
+        msg: 不會跑
+      when: false
+
+    - name: 驗證：no_log 帶密碼
+      ansible.builtin.debug:
+        msg: "{{ fake_secret }}"
+      environment:
+        RPW: "{{ fake_secret }}"
+      no_log: true
+
+    # report_hosts：when 引用它，適用的主機跑、不適用的 skipped，兩者紀錄都要有代入後的清單
+    - name: 驗證：適用主機（no_log）
+      vars:
+        report_service: "Redis / 6379"
+        report_method: "測試方式文字"
+        report_hosts: "{{ [this_host] }}"
+      ansible.builtin.debug:
+        msg: "{{ fake_secret }}"
+      environment:
+        RPW: "{{ fake_secret }}"
+      no_log: true
+      when: inventory_hostname in report_hosts and not ansible_check_mode
+
+    - name: 驗證：不適用主機
+      vars:
+        report_service: "PostgreSQL / 5432"
+        report_method: "測試方式文字"
+        report_hosts: "{{ [other_host] }}"
+      ansible.builtin.debug:
+        msg: 不會跑
+      when: inventory_hostname in report_hosts and not ansible_check_mode
+
+    - name: 不是驗證的步驟
+      ansible.builtin.debug:
+        msg: 不記
+
+# role 內的「驗證：」步驟（roles/verify_role/）
+- name: verify_records 測試（role）
+  hosts: localhost
+  gather_facts: false
+  roles:
+    - verify_role

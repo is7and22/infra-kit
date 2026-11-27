@@ -17,6 +17,18 @@ jobs:
       - name: Collector 設定靜態檢查
         run: python3 -m unittest discover -s otel/collector/tests -v
 
+  ansible-facts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      # 與跳板同版
+      - run: pip install ansible-core==2.22.0 jsonschema==4.26.0
+      - name: 轉接器、callback、filter
+        run: python3 -m unittest discover -s ansible-facts/tests -t ansible-facts/tests -v
+
   collector-validate:
     runs-on: ubuntu-latest
     steps:

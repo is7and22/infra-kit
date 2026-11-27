@@ -1,0 +1,2 @@
+{"type": "step", "time": "2026-11-21T09:00:00+08:00", "playbook": "install-web.yml", "play": "p", "host": "web-1", "step": "驗證：映像 Id 與清單一致", "result": "failed", "check": true}
+{"type": "summary", "time": "2026-11-21T09:01:00+08:00", "playbook": "install-web.yml", "check": true, "hosts": {"web-1": {"ok": 1, "failed": 0, "skipped": 0, "unreachable": 0}}}

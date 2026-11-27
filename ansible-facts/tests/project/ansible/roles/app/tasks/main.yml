@@ -1,0 +1,11 @@
+- name: 驗證：{{ svc_label }} 容器在跑
+  vars:
+    report_version: "{{ app_version }}"
+  ansible.builtin.debug:
+    msg: ok
+- name: 驗證：連得到儲存
+  vars:
+    report_service: 儲存 / {{ store_port }}
+    report_method: 連 {{ hostvars['store-1'].ansible_host }}:7000 回應正常
+  ansible.builtin.debug:
+    msg: ok

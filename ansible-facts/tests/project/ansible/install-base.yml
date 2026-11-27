@@ -1,0 +1,8 @@
+- name: 裝基礎套件
+  hosts: "{{ target | default('web,app,monitor') }}"
+  roles:
+    - base
+  tasks:
+    - name: 驗證：代理在跑
+      ansible.builtin.debug:
+        msg: ok

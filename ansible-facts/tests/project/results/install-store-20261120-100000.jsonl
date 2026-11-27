@@ -1,0 +1,3 @@
+{"type": "step", "time": "2026-11-20T10:00:00+08:00", "playbook": "install-store.yml", "play": "p", "host": "store-1", "step": "驗證：版本與清單一致", "result": "ok", "check": false}
+{"type": "step", "time": "2026-11-20T10:00:00+08:00", "playbook": "install-store.yml", "play": "p", "host": "store-1", "step": "驗證：從庫在複寫", "result": "ok", "check": false, "method": "主庫看得到從庫在複寫（port 7000）"}
+{"type": "summary", "time": "2026-11-20T10:05:00+08:00", "playbook": "install-store.yml", "check": false, "hosts": {"store-1": {"ok": 1, "failed": 0, "skipped": 0, "unreachable": 0}}}

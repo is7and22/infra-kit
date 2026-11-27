@@ -1,0 +1,3 @@
+- name: 算這台的 ufw 放行規則
+  ansible.builtin.debug:
+    msg: 假的

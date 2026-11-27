@@ -1,0 +1,8 @@
+- name: 裝網頁
+  hosts: web
+  vars:
+    ufw_writer: install-web.yml
+    web_image: example/web:v1.0.3
+  tasks:
+    - ansible.builtin.include_tasks: tasks/ufw.yml
+    - ansible.builtin.import_tasks: tasks/web-checks.yml
