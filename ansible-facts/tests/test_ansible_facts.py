@@ -19,9 +19,12 @@ RESULTS = HERE / 'project' / 'results'
 CHECK_FACTS = HERE / 'acceptance-docs' / 'check_facts.py'
 
 
+_TMP = tempfile.TemporaryDirectory(prefix='ansible-facts-test-')
+
+
 def run(mutate=None, results=RESULTS):
     """複製假項目、套用 mutate(ansible 目錄)、git init 後跑轉接器。回傳 (結束碼, stderr, json 或 None, json 路徑)"""
-    tmp = Path(tempfile.mkdtemp())
+    tmp = Path(tempfile.mkdtemp(dir=_TMP.name))
     d = tmp / 'ansible'
     shutil.copytree(PROJECT, d)
     if mutate:
@@ -104,7 +107,16 @@ CASES = [
     ('N4', '有 firewall 沒有 ufw_comment', replace(P, '    ufw_comment: "web {host}"\n', ''), 'ufw_comment'),
     ('N5', 'verify 的步驟找不到', replace(P, 'step: 驗證：本機服務回 200', 'step: 驗證：不存在'), '找不到步驟「驗證：不存在」'),
     ('N5', 'verify 挑了名稱含 {{ }} 的步驟', replace(P, 'step: 驗證：連得到儲存', 'step: 驗證：應用 容器在跑'), '找不到步驟「驗證：應用 容器在跑」'),
-    ('N5', 'verify 缺欄位', replace(P, '        note: 從應用容器連儲存\n', '        note: 從應用容器連儲存\n        extra: 1\n'), '不認得的欄位 extra'),
+    ('N5', 'verify 多了不認得的欄位', replace(P, '        note: 從應用容器連儲存\n', '        note: 從應用容器連儲存\n        extra: 1\n'), '不認得的欄位 extra'),
+    ('N5', 'verify 缺欄位', replace(P, '        note: 從應用容器連儲存\n', '        note: 從應用容器連儲存\n        step: null\n'), '缺 step'),
+    ('N1', 'id 含其他規則的字也歸 N1', replace(P, "id: users-web\n    from: any\n    to: web\n    port: web_port\n    protocol: tcp", "id: users-port\n    from: any\n    to: web\n    port: web_port\n    protocol: sctp"), "protocol 'sctp'"),
+    ('N1', '缺 port', replace(P, '    port: app_port\n', ''), '缺 port'),
+    ('N2', 'to 寫成清單', replace(P, 'to: store_primary', 'to: [store_primary]'), 'to 要是一個群組名'),
+    ('N2', 'from 有 any 又列群組', replace(P, 'from: any', 'from: [any, app]'), 'from 有 any'),
+    ('N3', 'port 不是變數名', replace(P, 'port: web_port', 'port: web-port'), "port 'web-port'"),
+    ('N6', 'service 的大括號沒關', replace(P, 'service: 網頁 {app_port}', 'service: 網頁 {app_port'), '寫法不對'),
+    ('C12', '步驟名結尾是變數時不放寬', replace(P, 'step: 驗證：代理在跑', 'step: 驗證：只聽 打錯字'), '找不到步驟「驗證：只聽 打錯字」'),
+    ('C3', 'table: false 用 record', replace(P, "version_from: {id: base-helper, file: roles/base/defaults/main.yml, list: base_debs, item: base-helper, var: version, format: deb}", 'version_from: record'), 'C3'),
     ('N6', 'service 的變數找不到', replace(P, 'service: 網頁 {app_port}', 'service: 網頁 {nope_port}'), 'nope_port'),
     ('N7', '同一服務同一範圍列兩次', replace(P, '        step: 驗證：從庫在複寫', DUP_VERIFY), '列了兩次'),
 ]
@@ -188,15 +200,27 @@ class AdapterOkTest(unittest.TestCase):
 class AdapterRecordProblemsTest(unittest.TestCase):
     """V1–V3、V7 不是錯：照樣寫出，null 與 problem"""
 
-    def test_no_records(self):
+    def test_results_not_a_dir(self):
         rc, err, doc, _ = run(results=HERE / 'project' / 'nope')
+        self.assertEqual((rc, doc), (2, None))
+        self.assertIn('不是目錄', err)
+
+    def test_bad_jsonl_is_error(self):
+        tmp = Path(tempfile.mkdtemp(dir=_TMP.name))
+        (tmp / 'x-1.jsonl').write_text('{"type": "step"\n', encoding='utf-8')
+        rc, err, doc, _ = run(results=tmp)
+        self.assertEqual((rc, doc), (1, None))
+        self.assertIn('錯：V6 ', err)
+
+    def test_no_records(self):
+        rc, err, doc, _ = run(results=Path(tempfile.mkdtemp(dir=_TMP.name)))
         self.assertEqual(rc, 0, err)
         self.assertIn('沒有任何紀錄', err)
         insts = [i for c in doc['components'] for i in c.get('instances', [])]
         self.assertTrue(all(i['check'] is None and '沒有正式執行的紀錄' in i['problem'] for i in insts))
 
     def test_record_problems(self):
-        tmp = Path(tempfile.mkdtemp())
+        tmp = Path(tempfile.mkdtemp(dir=_TMP.name))
         shutil.copytree(RESULTS, tmp, dirs_exist_ok=True)
         f = tmp / 'install-store-20261120-100000.jsonl'
         lines = [json.loads(x) for x in f.read_text(encoding='utf-8').splitlines()]

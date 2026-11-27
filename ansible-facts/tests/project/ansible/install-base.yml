@@ -6,3 +6,7 @@
     - name: 驗證：代理在跑
       ansible.builtin.debug:
         msg: ok
+    # 名稱結尾是變數：C12 不放寬（「驗證：只聽 打錯字」也會對得上）
+    - name: 驗證：只聽 {{ ansible_host }}
+      ansible.builtin.debug:
+        msg: ok

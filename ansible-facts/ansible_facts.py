@@ -288,13 +288,15 @@ VAR_RE = re.compile(r'\{\{.*?\}\}')
 
 
 def step_found(step, names, allow_vars):
-    """紀錄上的步驟名在 playbook 找得到：原文一樣；allow_vars 時（C12）名稱含 {{ 變數 }} 的步驟，每個 {{ }} 換成任意文字後一樣"""
+    """紀錄上的步驟名在 playbook 找得到：原文一樣；allow_vars 時（C12）名稱中間含 {{ 變數 }} 的步驟，每個 {{ }} 換成任意文字後一樣"""
     if step in names:
         return True
     if not allow_vars:
         return False
     for n in names:
-        if VAR_RE.search(n) and re.fullmatch('.+'.join(re.escape(s) for s in VAR_RE.split(n)), step):
+        parts = VAR_RE.split(n)
+        # 變數在名稱開頭或結尾時不放寬：會變成前綴或後綴比對，打錯字也對得上
+        if len(parts) > 1 and parts[0] and parts[-1] and re.fullmatch('.+'.join(re.escape(s) for s in parts), step):
             return True
     return False
 
@@ -393,16 +395,51 @@ def _fields(text):
 
 
 def _check_doc_rule(message):
-    """connection_links.check_doc 的訊息歸到哪條規則"""
-    if '的 verify ' in message:
+    """connection_links.check_doc 的訊息歸到哪條規則。看「link <id>」之後的內文，id 裡的字不影響"""
+    head, _, body = message.partition('：')
+    if ' 的 verify 第 ' in head:
         return 'N5'
-    if 'port' in message:
+    if body.startswith(('不認得的欄位', '缺 ', 'id 重複', 'protocol')):
+        return 'N1'
+    if body.startswith('port '):
         return 'N3'
-    if 'firewall' in message or 'ufw_comment' in message:
+    if 'firewall' in body or 'ufw_comment' in body:
         return 'N4'
-    if 'from 有 any' in message:
+    if body.startswith('from 有 any'):
         return 'N2'
     return 'N1'
+
+
+def _shape_errors(doc):
+    """check_doc 不驗型別：links 的 from、to 與 verify 的值型別不對時先擋（否則後面會 traceback）。[(代號, 訊息)]"""
+    links = doc.get('links') if isinstance(doc, dict) else None
+    if not isinstance(links, list):
+        return []  # check_doc 會報
+    out = []
+    for i, link in enumerate(links):
+        if not isinstance(link, dict):
+            out.append(('N1', 'project.yaml links 第 %d 項要是 mapping' % (i + 1)))
+            continue
+        where = 'project.yaml link %s' % (link.get('id') or '第 %d 條' % (i + 1))
+        frm = link.get('from')
+        if not (isinstance(frm, str) or (isinstance(frm, list) and all(isinstance(g, str) for g in frm))):
+            out.append(('N2', '%s：from 要是群組名或群組名的清單，寫的是 %r' % (where, frm)))
+        if link.get('to') is not None and not isinstance(link.get('to'), str):
+            out.append(('N2', '%s：to 要是一個群組名或 self，寫的是 %r' % (where, link['to'])))
+        verify = link.get('verify')
+        if verify is not None and not (isinstance(verify, list) and all(isinstance(v, dict) for v in verify)):
+            out.append(('N5', '%s：verify 要是 mapping 的清單' % where))
+            continue
+        for j, v in enumerate(verify or []):
+            for k in ('service', 'hosts', 'playbook', 'step', 'note'):
+                if v.get(k) is not None and not isinstance(v[k], str):
+                    out.append(('N5', '%s 的 verify 第 %d 項：%s 要是字串' % (where, j + 1, k)))
+            if isinstance(v.get('service'), str):
+                try:
+                    _fields(v['service'])
+                except ValueError as e:
+                    out.append(('N6', '%s 的 verify 第 %d 項：service「%s」的 {變數} 寫法不對（%s）' % (where, j + 1, v['service'], e)))
+    return out
 
 
 class Facts:
@@ -412,8 +449,12 @@ class Facts:
         self.d = Path(ansible_dir).resolve()
         if not self.d.is_dir():
             raise Stop('L1 %s 不是目錄（ansible 放在 <項目根>/ansible/）' % ansible_dir)
+        if results_dir and not Path(results_dir).is_dir():
+            # 明確給了卻不是目錄：多半是路徑打錯，不要當成「沒有紀錄」寫出全 null
+            raise Stop('--results %s 不是目錄' % results_dir)
         self.results_dir = Path(results_dir) if results_dir else self.d / 'logs' / 'results'
         self.errors = []
+        self.port_dup_reported = set()
 
     def err(self, rule, message):
         self.errors.append('%s %s' % (rule, message))
@@ -506,8 +547,10 @@ class Facts:
             self.err(rule, '%s：變數 %s 不在任何 inventory 來源的 group_vars/all.yml' % (where, name))
             return None
         if len(srcs) > 1:
-            self.err('I6', '%s：變數 %s 在 %s 都有定義，只能定義一處（ansible 用後疊的那份，文件可能讀到另一份）' % (
-                where, name, '、'.join(srcs)))
+            if name not in self.port_dup_reported:
+                self.port_dup_reported.add(name)
+                self.err('I6', '%s：變數 %s 在 %s 都有定義，只能定義一處（ansible 用後疊的那份，文件可能讀到另一份）' % (
+                    where, name, '、'.join(srcs)))
             return None
         return str(self.ports[name])
 
@@ -628,6 +671,11 @@ class Facts:
 
     def build_links(self):
         doc = self.doc
+        shape = _shape_errors(doc)
+        for rule, e in shape:
+            self.err(rule, e)
+        if shape:
+            return []
         errs = links_lib.check_doc(doc)
         for e in errs:
             self.err(_check_doc_rule(e), 'project.yaml ' + e)
@@ -782,14 +830,21 @@ class Facts:
         if c['version_from'] == RECORD and r and r.get('version'):
             # C11：版本取部署時從主機或容器讀到的值；最近一次是 skipped 時也照記（計畫書要印版本）
             inst['versions'] = [{'version': r['version']}]
-        if problem is None and r['result'] not in RESULT:
-            problem = '最近一次正式執行是 %s（%s）' % (r['result'], r['time'])
+        if problem is None:
+            if 'report_hosts' in r and host not in r['report_hosts']:
+                # V7：步驟說它不適用這台，跟 project.yaml 的主機範圍不一致
+                problem = 'report_hosts %s 不含這台，跟 project.yaml 的主機範圍不一致（%s）' % (r['report_hosts'], r['time'])
+            elif r['result'] not in RESULT:
+                problem = '最近一次正式執行是 %s（%s）' % (r['result'], r['time'])
         if problem:
             inst['check'], inst['problem'] = None, problem
             return inst
         inst['check'] = {'result': RESULT[r['result']], 'time': r['time']}
         if c['version_from'] == RECORD and 'versions' not in inst:
             inst['problem'] = ('紀錄的 report_version 代入失敗（%s）' if r.get('report_error') else '紀錄沒有 version（%s）') % r['time']
+        elif r.get('report_error'):
+            # V3：代入失敗，結果照記，problem 說明
+            inst['problem'] = '紀錄的 report_* 代入失敗（%s）' % r['time']
         return inst
 
     @staticmethod
