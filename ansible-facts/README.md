@@ -1,0 +1,135 @@
+# ansible-facts：用 ansible 部署的項目輸出部署事實
+
+驗收文件的軟體表與連線表，由一份與部署工具無關的 `部署事實.json` 組出來（格式由驗收文件 repo 的 `schemas/部署事實.schema.json` 定）。本目錄是 ansible 的轉接器：讀項目的 inventory、版本鎖定處、驗證紀錄與 `project.yaml`，寫出 `部署事實.json`。
+
+本檔是轉接器的規格：項目的 ansible 要照什麼結構寫，轉接器才讀得出來。實作與它的檢查是後續的事，本目錄目前只有本檔。
+
+| 檔（後續提供） | 做什麼 | 誰用 |
+|---|---|---|
+| `callback_plugins/verify_records.py` | 把驗證步驟寫成紀錄（V5、V6） | 每次執行 playbook |
+| `filter_plugins/connection_links.py` | `links` 展開成 ufw 規則、欄位檢查、埠代入 | 負責放行的 playbook（N4）；轉接器 |
+| 轉接器 | 讀本檔規定的位置，寫出 `部署事實.json` | 項目產驗收文件前跑 |
+
+整條路：項目照本檔寫 ansible → 跑 playbook，callback 留下驗證紀錄 → 轉接器讀 ansible 與紀錄，寫 `部署事實.json` → 驗收文件 repo 讀它組表。
+
+轉接器只交事實。表格列怎麼排、版本怎麼接、用語正規化、句子怎麼寫，都是驗收文件那邊的事，不在這裡。
+
+每條規則的「填哪個欄位」指 `部署事實.json` 的欄位路徑。「違反時」標明會不會有錯誤訊息；**標「無錯誤訊息」的，轉接器照樣寫出 json，錯只有讀文件的人看得到**。
+
+## 項目怎麼引用
+
+git submodule 掛在 `ansible/vendor/infra-kit`，指到 tag，不跟 main。掛在 `ansible/` 底下：執行 ansible 的機器可能只看得到 `ansible/` 這個目錄。
+
+`ansible.cfg`：
+
+```ini
+[defaults]
+callback_plugins = ./vendor/infra-kit/ansible-facts/callback_plugins
+callbacks_enabled = verify_records
+filter_plugins = ./vendor/infra-kit/ansible-facts/filter_plugins
+```
+
+| 代號 | 規定 | 違反時 |
+|---|---|---|
+| S1 | callback 與 filter 只從 submodule 取，`ansible/callback_plugins/`、`ansible/filter_plugins/` 不放這兩支的副本 | 留著副本時 ansible 可能載到舊的那份，防火牆放行與 `部署事實.json` 的 `links` 照不同規則展開，無錯誤訊息 |
+| S2 | 轉接器用同一個 submodule 的版本跑，不另裝一份 | 同上 |
+
+## 一、位置
+
+| 代號 | 規定 | 填哪個欄位 | 違反時 |
+|---|---|---|---|
+| L1 | ansible 放在 `<項目根>/ansible/`，`ansible.cfg` 在這一層；設定裡的相對路徑都相對 `ansible/` | 全部 | 找不到檔案，轉接器停，有錯誤訊息 |
+| L2 | 項目資料檔是 `ansible/vars/project.yaml`，檔名每個項目都一樣，最上層是 mapping | `components`、`links`、`groups[].label` | 同上 |
+| L3 | playbook 只用 `lookup('ansible.builtin.file', …) \| from_yaml` 讀 `project.yaml` 再取要的節，不用 `vars_files` 或 `include_vars` 整份載入 | 不填；守 ansible 執行 | 整份載入時各節變成 play 變數，蓋掉同名變數，無錯誤訊息 |
+
+## 二、inventory
+
+| 代號 | 規定 | 填哪個欄位 | 違反時 |
+|---|---|---|---|
+| I1 | `project.yaml` 的 `inventory` 列出要帶的 inventory 來源，每項是相對 `ansible/` 的目錄，順序就是疊的順序 | `hosts`（順序）、`groups` | 沒有 `inventory` 鍵：轉接器停，有錯誤訊息。少列一份：引用它群組的元件與連線有錯誤訊息 |
+| I2 | 每份來源是一個目錄，裡面有 `hosts.yml`，YAML 格式（`all:` → `children:` → 群組 → `hosts:`）。不用 INI，不用動態 inventory plugin | `hosts`、`groups` | 讀不到，有錯誤訊息 |
+| I3 | 進文件的主機在 `ansible_host` 寫字面的 IPv4，不寫運算式 | `hosts[].ip` | 寫運算式：schema 檢查擋下，有錯誤訊息。沒有 `ansible_host` 的主機（例：本機連線的 `localhost`）不算群組成員；群組因此變空時有錯誤訊息，只少幾台時**那幾台不進表，無錯誤訊息** |
+| I4 | `hosts` 的順序照 inventory：來源照 I1 的順序，來源內照群組與主機在檔裡的順序 | `hosts` 的順序 | 不是違反，是規則：改順序，表的列順序跟著變 |
+| I5 | 一群主機裡有特定角色的（例：資料庫的主庫、從庫、快取所在的那台），每個角色用一個 inventory 群組宣告，playbook 用 `groups['<角色群組>']` 取主機，不在 playbook 用運算式從別的群組推算 | `groups`、`components[].instances`、`links[].to` | 轉接器只讀群組，不解析 playbook 的運算式。用運算式推算的角色，`components` 與 `links` 沒有寫法能指到它；角色的參數用 `-e` 蓋過時，**表上主從標反，無錯誤訊息** |
+| I6 | 埠變數（`links` 的 `port`、`verify` 的 `service` 裡的 `{變數}`）寫在某一份來源的 `group_vars/all.yml`，整個 inventory 只定義一處 | `links[].ports`、`links[].checks[].service` | 找不到：有錯誤訊息。兩份來源都定義：ansible 用後疊的那份，轉接器可能讀到另一份，**文件與防火牆的埠不同，無錯誤訊息**（轉接器要擋） |
+| I7 | `ansible/` 底下受版控的檔，I1 的來源目錄以外，不出現 inventory 主機的 IP | 不填；守「IP 只寫在 inventory」 | 轉接器點名檔案與行號。沒擋的話 IP 改了之後那份檔還是舊的，無錯誤訊息 |
+
+## 三、project.yaml：group_labels
+
+| 代號 | 規定 | 填哪個欄位 | 違反時 |
+|---|---|---|---|
+| G1 | `group_labels` 給群組的中文名稱，鍵是群組名，另有 `any` 給不限來源 | `groups[].label`、`links[].from[].label`（`any`） | `to` 不是 `self` 的 link 兩端缺名稱：有錯誤訊息 |
+
+## 四、project.yaml：components
+
+| 代號 | 規定 | 填哪個欄位 | 違反時 |
+|---|---|---|---|
+| C1 | 欄位只有 `id`、`name`、`plan_name`、`type`、`hosts`、`version_from`、`verify`、`table`。`id`、`name`、`type`、`version_from` 必填，`id` 不重複 | `components[]` 的 `id`、`name`、`plan_name`、`type` | 有錯誤訊息 |
+| C2 | `type` 是 `application`、`container`、`library`、`operating-system`、`platform`、`framework` 之一 | `components[].type` | 有錯誤訊息 |
+| C3 | `table: false` 的元件不寫 `hosts`、`verify`、`plan_name`，`version_from` 要是鎖定處。其他元件 `hosts`、`verify` 必填 | `components[].in_table`、`versions` | 有錯誤訊息 |
+| C4 | `hosts` 寫成 `group:<群組>`（多組用逗號接）或 `play:<playbook>`。`play:` 取那支 playbook 的 play 的 `hosts:` | `components[].instances[].host` | 寫法不認得、群組不在 inventory 或沒有主機：有錯誤訊息 |
+| C5 | `play:` 指到的 playbook 只有一個 play（`import_playbook` 不算），`hosts:` 是群組名用 `:` 或 `,` 接，不含運算式、`!`、`&`。主機由 `-e` 參數決定的 playbook 不能用 `play:`，改寫 `group:` | 同上 | 有錯誤訊息 |
+| C6 | `version_from` 是 `record`、一個鎖定處或鎖定處的清單 | `components[].versions`（鎖定處）、`instances[].versions`（`record`） | 有錯誤訊息 |
+| C7 | 鎖定處的欄位只有 `id`、`file`、`var`、`parent`、`list`、`item`、`format`、`label`；`id`、`file`、`var`、`format` 必填；`list` 與 `item` 一起寫，且不和 `parent` 同時寫；同一個 `id` 出現兩次時 `label` 以外要一字不差（用 YAML 錨點） | `versions[].lock`、`label` | 有錯誤訊息 |
+| C8 | 鎖定處在 `file`（相對 `ansible/`）裡剛好一處，寫成單行的 `var: 值`。有 `parent` 時只在 `parent:` 區塊內找；有 `list`、`item` 時在頂層 `list:` 清單裡 `name: <item>` 那一項找 `var` | `versions[].full` | 找不到或不只一處：有錯誤訊息 |
+| C9 | `format` 是 `deb`（`[epoch:]上游[+ds\|+dfsg]-修訂`）、`image`（`名稱:v1.2.3` 或 `名稱:1.2.3`）、`plain`（`1.2.3`）之一 | `versions[].version`（上游版本） | 值的格式不認得：有錯誤訊息 |
+| C10 | 版本只寫在鎖定處，`project.yaml` 不寫版本號 | 不填 | 寫在 `project.yaml` 的版本號轉接器不讀，跟鎖定處不同時無錯誤訊息 |
+| C11 | `version_from: record` 的元件，它的驗證步驟要有 `report_version`（V3） | `instances[].versions` | 轉接器點名，那台沒有版本 |
+| C12 | `verify` 寫 `{playbook, step}`。`step` 是紀錄上的名稱，要在那支 playbook 或它 include、import 的檔（含 role 的 tasks）找得到。步驟名含 `{{ 變數 }}` 時，`step` 寫代入後的名稱；這種步驟名在 `{{ }}` 前後都要有固定文字 | `instances[].check` | 找不到：有錯誤訊息。`{{ }}` 在名稱結尾時比對變成只比前綴，會比到別的步驟，無錯誤訊息 |
+| C13 | 沒有兩筆元件的 `hosts` 與 `verify` 都一樣 | 同上 | 有錯誤訊息（通常是角色寫重了） |
+| C14 | `components` 的順序就是輸出的順序 | `components` 的順序 | 不是違反，是規則 |
+
+## 五、project.yaml：links
+
+`links` 一條是一個連線關係。ufw 白名單與 `部署事實.json` 的 `links` 都從這裡展開。
+
+| 代號 | 規定 | 填哪個欄位 | 違反時 |
+|---|---|---|---|
+| N1 | 欄位只有 `id`、`from`、`to`、`port`、`protocol`、`purpose`、`firewall`、`ufw_comment`、`verify`。`id`、`from`、`to`、`port`、`protocol`、`purpose` 必填，`id` 不重複，`protocol` 是 `tcp` 或 `udp` | `links[]` 的 `id`、`protocol`、`purpose` | 有錯誤訊息 |
+| N2 | `from` 是群組名或群組名清單，或 `any`（不能再列群組）。`to` 是一個群組名，或 `self`（本機服務） | `links[].from`、`to` | 群組不在 inventory 或沒有主機：有錯誤訊息 |
+| N3 | `port` 是 I6 的變數名或變數名清單；只有 `to: self` 可以寫數字 | `links[].ports`（代入後的值） | 有錯誤訊息 |
+| N4 | `firewall` 寫負責放行的 playbook（相對 `ansible/`），它或它 include 的檔要有 `ufw_writer: <它自己的檔名>`。有 `firewall` 就要有 `ufw_comment`，沒有就不寫；`to: self` 不寫 `firewall`。`ufw_comment` 裡 `{ip}`、`{host}` 代來源主機的 IP 與名稱 | `links[].firewalled` | 有錯誤訊息。`ufw_comment` 跟主機上現有規則不同時，重跑會疊出新規則，無錯誤訊息 |
+| N5 | `verify` 是清單，每項欄位只有 `service`、`hosts`、`playbook`、`step`、`note`，前四個必填。`hosts` 寫法同 C4、C5。`step` 要在那支 playbook 或它 include 的檔找得到原文一樣的步驟，名稱含 `{{ }}` 的步驟不能用 | `links[].checks[]` | 有錯誤訊息 |
+| N6 | `verify` 的 `service` 裡 `{變數}` 代入 I6 的值 | `checks[].service` | 變數找不到：有錯誤訊息 |
+| N7 | 同一個 `service` 與 `hosts` 只列一次 | `checks[]` | 有錯誤訊息 |
+| N8 | `links` 的順序與每條 `verify` 的順序就是輸出的順序；ufw 照 `links` 的順序放行 | `links`、`checks` 的順序 | 不是違反，是規則 |
+
+## 六、驗證步驟與紀錄
+
+| 代號 | 規定 | 填哪個欄位 | 違反時 |
+|---|---|---|---|
+| V1 | 要進報告的檢查寫成名稱以「驗證：」開頭的步驟，只有這種步驟會留紀錄 | `check` | 沒有紀錄：`check` 是 `null`，`problem` 寫「沒有正式執行的紀錄」 |
+| V2 | `components` 與 `links` 引用的步驟，在同一次執行的同一台主機只出現一次 | `check` | role 內的步驟名不帶 role 前綴，同名兩步分不出來：`check` 是 `null`，`problem` 寫原因 |
+| V3 | 驗證步驟的 `vars` 可寫：`report_service`、`report_method`（`links` 引用的步驟必寫）、`report_version`（從主機或容器讀到的版本，不寫鎖定的變數）、`report_hosts`（這步適用哪些主機的名稱清單，`when:` 引用同一個變數） | `check.service`、`check.method`、`instances[].versions` | `links` 引用的步驟沒有 `report_method`：`problem`。代入失敗：紀錄寫 `report_error`，`problem` |
+| V4 | `report_*` 不放密碼變數。紀錄照樣寫出，`no_log` 也一樣 | 不填 | 密碼寫進紀錄檔，無錯誤訊息 |
+| V5 | `ansible.cfg` 啟用本目錄的 callback（見「項目怎麼引用」）。紀錄寫在 `ansible/logs/results/<playbook>-<時間>.jsonl`，不進版控 | `check` | 沒啟用：沒有紀錄，同 V1 |
+| V6 | 紀錄格式由 callback 定，項目不改：每個驗證步驟一行 `{"type": "step", time, playbook, play, host, step, result, check, service?, method?, version?, report_hosts?, report_error?}`，執行結束一行 `{"type": "summary", time, playbook, check, hosts: {主機: {ok, failed, skipped, unreachable}}}` | — | — |
+| V7 | 轉接器只採正式執行：不是 `--check`、有總結行、總結沒有 unreachable。每個（playbook、主機）取最近一次正式執行；那次沒有這一步、主機在這步之前就失敗、只出現在更晚的預演、結果是 skipped，都寫 `null` 與 `problem`，不沿用更早的結果。`report_hosts` 不含這台時同樣 | `check.result`（ok → `pass`、failed → `fail`）、`check.time` | 不是違反，是規則 |
+| V8 | 有正式紀錄而 `components` 沒展開到的主機（例：用 `-e` 多裝了一台） | `problems[]` | 轉接器寫進 `problems` |
+
+## 七、參考項目目前不符合的地方
+
+已有一個項目照這套寫法在用，產生腳本由項目自己維護。它與本規格的差異：
+
+| 規則 | 現在 | 要改成 |
+|---|---|---|
+| I1 | inventory 來源與順序寫在項目的產生腳本裡，`project.yaml` 沒有 `inventory` | `project.yaml` 加 `inventory`，照現在腳本裡的順序列 |
+| I5 | 資料庫的主庫、從庫、快取主機由資料庫 playbook 的運算式從資料庫群組推算（第一台、其餘那台），不是寫在 inventory | inventory 加三個角色群組；資料庫 playbook 改用 `groups['<角色群組>']`；`components` 與 `links` 的 `db:<角色>` 改成 `group:<角色群組>`，`group_labels` 的鍵跟著改。主從切換改 inventory 的群組成員 |
+| C4、N5 | 一個元件與一項連線驗證的主機寫成 `targets:<playbook>`，由 playbook 前置斷言允許的 `-e target` 清單推算 | inventory 加一個群組宣告這個服務裝在哪些主機，playbook 的 `hosts:` 用它（或 `-e target` 與它取交集）；`hosts` 改寫 `group:` 或 `play:` |
+| S1 | callback 與 filter 是項目自己的副本，放在 `ansible/callback_plugins/`、`ansible/filter_plugins/` | 刪掉副本，掛 submodule 到 `ansible/vendor/infra-kit`，`ansible.cfg` 改指那裡 |
+
+取捨的依據：
+
+- **I1**：不改的代價是來源清單寫死在轉接器裡，換一個 inventory 拆法不同的項目就要改轉接器；來源順序決定 `hosts` 順序，轉接器自己排的話表上列順序會變，無錯誤訊息。不用「`inventory/` 底下全部子目錄」：子目錄名的排序不一定是疊的順序
+- **I5**：不改的代價是轉接器要寫死一支 playbook 的檔名、變數名與運算式原文，還要求資料庫群組剛好兩台，別的項目拓撲不同就不能用。運算式的參數可以用 `-e` 蓋過，切換後表上主從標反，無錯誤訊息
+- **`targets:`**：讀前置斷言是解析 playbook 的條件判斷。不改的代價是轉接器要認一種斷言的字面寫法，斷言換個寫法就讀不到
+- **S1**：不改的代價是每個項目一份副本。連線展開同時決定防火牆放行與文件內容，兩邊用到不同版本時文件與實際放行不一致，無錯誤訊息
+- 其他規則照參考項目現行做法：它已照這些寫法在用，舉不出改的理由
+
+## 八、不在本規格的
+
+參考項目還有幾項檢查讀 ansible，屬於該項目自己的部署寫法，留在項目裡，轉接器不做：
+
+- 安裝 Docker 的 playbook 預設 target 要涵蓋 Docker 元件的主機，且每個容器元件的主機都裝了 Docker
+- 正式部署 playbook 每個服務的步驟名代入的服務名稱，要在對應群組的 play 裡剛好一處
+- 項目的安裝版本清單每一列的版本等於鎖定處：版本從 `部署事實.json` 的 `versions[].full` 與 `lock` 讀，表格欄名與元件的對照是項目文件的寫法

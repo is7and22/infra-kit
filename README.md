@@ -11,6 +11,7 @@
 | 目錄 | 元件 | 狀態 |
 |---|---|---|
 | `otel/` | OTel 追蹤：Collector 設定、nginx 模組片段、Python 零程式注入包法、串接檢查 | v0.1 |
+| `ansible-facts/` | 用 ansible 部署的項目輸出 `部署事實.json`（給驗收文件）：驗證紀錄 callback、連線展開 filter、轉接器 | 只有規格 |
 
 預計收進來的：OTel 追蹤（各語言的零程式注入包法、Collector 設定與 ansible role、串接測試）、nginx 片段、離線安裝 Docker 的 ansible playbook。
 
